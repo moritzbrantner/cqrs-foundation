@@ -2,6 +2,8 @@ using CqrsFoundation.Auth;
 using CqrsFoundation.Domain.Customers;
 using CqrsFoundation.Domain.Tenants;
 using CqrsFoundation.Domain.Users;
+using JasperFx.Events.Projections;
+using JasperFx.MultiTenancy;
 using Marten;
 using Marten.Events;
 using Marten.Events.Projections;

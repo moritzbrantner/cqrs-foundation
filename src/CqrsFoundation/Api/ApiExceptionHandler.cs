@@ -1,5 +1,5 @@
 using CqrsFoundation.Domain.Common;
-using Marten.Exceptions;
+using JasperFx;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
