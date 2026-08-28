@@ -45,7 +45,7 @@ public sealed class ApiBoundaryTests
         Assert.AreEqual("Forbidden", problem?.Title);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("email")]
     [DataRow("password")]
     [DataRow("name")]
