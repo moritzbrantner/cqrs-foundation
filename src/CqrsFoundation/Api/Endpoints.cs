@@ -1,17 +1,18 @@
 using CqrsFoundation.Application;
 using CqrsFoundation.Auth;
+using CqrsFoundation.Domain.Common;
 using Marten;
 using Microsoft.AspNetCore.Identity;
 
 namespace CqrsFoundation.Api;
 
-public sealed record RegisterUserRequest(string Email, string Password);
-public sealed record LoginUserRequest(string Email, string Password);
-public sealed record CreateTenantRequest(string Name);
-public sealed record AddTenantMemberRequest(Guid UserId, string Role);
-public sealed record ChangeTenantMemberRoleRequest(string Role);
-public sealed record CreateCustomerRequest(string Name);
-public sealed record RenameCustomerRequest(string Name);
+public sealed record RegisterUserRequest(string? Email, string? Password);
+public sealed record LoginUserRequest(string? Email, string? Password);
+public sealed record CreateTenantRequest(string? Name);
+public sealed record AddTenantMemberRequest(Guid UserId, string? Role);
+public sealed record ChangeTenantMemberRoleRequest(string? Role);
+public sealed record CreateCustomerRequest(string? Name);
+public sealed record RenameCustomerRequest(string? Name);
 
 public static class Endpoints
 {
@@ -48,7 +49,9 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var result = await RegisterUserHandler.Handle(
-            new RegisterUser(request.Email, request.Password),
+            new RegisterUser(
+                RequireRequestString(request.Email, "email"),
+                RequireRequestString(request.Password, "password")),
             store,
             passwordHasher,
             tokenService,
@@ -65,7 +68,9 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var result = await LoginUserHandler.Handle(
-            new LoginUser(request.Email, request.Password),
+            new LoginUser(
+                RequireRequestString(request.Email, "email"),
+                RequireRequestString(request.Password, "password")),
             store,
             passwordHasher,
             tokenService,
@@ -89,7 +94,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenantId = await CreateTenantHandler.Handle(
-            new CreateTenant(request.Name),
+            new CreateTenant(RequireRequestString(request.Name, "name")),
             CurrentUser.Id(httpContext.User),
             store,
             httpContext.TraceIdentifier,
@@ -124,7 +129,10 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         await AddTenantMemberHandler.Handle(
-            new AddTenantMember(tenant.TenantId, request.UserId, request.Role),
+            new AddTenantMember(
+                tenant.TenantId,
+                request.UserId,
+                RequireRequestString(request.Role, "role")),
             CurrentUser.Id(httpContext.User),
             store,
             httpContext.TraceIdentifier,
@@ -141,7 +149,10 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         await ChangeTenantMemberRoleHandler.Handle(
-            new ChangeTenantMemberRole(tenant.TenantId, userId, request.Role),
+            new ChangeTenantMemberRole(
+                tenant.TenantId,
+                userId,
+                RequireRequestString(request.Role, "role")),
             CurrentUser.Id(httpContext.User),
             store,
             httpContext.TraceIdentifier,
@@ -181,8 +192,11 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
+        EnsureCanWrite(tenant);
         var customerId = await CreateCustomerHandler.Handle(
-            new CreateCustomer(tenant.TenantId, request.Name),
+            new CreateCustomer(
+                tenant.TenantId,
+                RequireRequestString(request.Name, "name")),
             CurrentUser.Id(httpContext.User),
             store,
             httpContext.TraceIdentifier,
@@ -208,8 +222,12 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
+        EnsureCanWrite(tenant);
         await RenameCustomerHandler.Handle(
-            new RenameCustomer(tenant.TenantId, customerId, request.Name),
+            new RenameCustomer(
+                tenant.TenantId,
+                customerId,
+                RequireRequestString(request.Name, "name")),
             CurrentUser.Id(httpContext.User),
             store,
             httpContext.TraceIdentifier,
@@ -224,6 +242,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
+        EnsureCanWrite(tenant);
         await DeactivateCustomerHandler.Handle(
             new DeactivateCustomer(tenant.TenantId, customerId),
             CurrentUser.Id(httpContext.User),
@@ -250,4 +269,15 @@ public static class Endpoints
     private static TenantContext RequireTenant(HttpContext context) =>
         TenantContext.From(context)
         ?? throw new BadHttpRequestException("X-Tenant-Id header is required for tenant-scoped endpoints.");
+
+    internal static string RequireRequestString(string? value, string fieldName) =>
+        value ?? throw new BadHttpRequestException($"The '{fieldName}' field is required.");
+
+    internal static void EnsureCanWrite(TenantContext tenant)
+    {
+        if (!tenant.CanWrite)
+        {
+            throw new ForbiddenAccessException("The current user cannot modify tenant resources.");
+        }
+    }
 }

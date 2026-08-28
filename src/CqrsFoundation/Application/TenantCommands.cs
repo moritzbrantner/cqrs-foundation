@@ -71,7 +71,7 @@ public static class AddTenantMemberHandler
         if (!tenant.Members.TryGetValue(actorId, out var role) ||
             role is not (TenantRoles.Owner or TenantRoles.Admin))
         {
-            throw new UnauthorizedAccessException("The current user cannot manage tenant members.");
+            throw new ForbiddenAccessException("The current user cannot manage tenant members.");
         }
     }
 }

@@ -18,6 +18,7 @@ public sealed class ApiExceptionHandler : IExceptionHandler
             BusinessRuleException => (StatusCodes.Status422UnprocessableEntity, "Business rule rejected the command"),
             KeyNotFoundException => (StatusCodes.Status404NotFound, "Resource not found"),
             UnauthorizedAccessException => (StatusCodes.Status401Unauthorized, "Unauthorized"),
+            ForbiddenAccessException => (StatusCodes.Status403Forbidden, "Forbidden"),
             ConcurrencyException => (StatusCodes.Status409Conflict, "Concurrent modification detected"),
             _ => (StatusCodes.Status500InternalServerError, "Unexpected server error")
         };
