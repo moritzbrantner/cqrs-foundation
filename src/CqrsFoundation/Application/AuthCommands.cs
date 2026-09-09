@@ -1,3 +1,4 @@
+using System.Data.Common;
 using CqrsFoundation.Auth;
 using CqrsFoundation.Domain.Common;
 using CqrsFoundation.Domain.Users;
@@ -45,7 +46,15 @@ public static class RegisterUserHandler
         AuditMetadata.Apply(session, userId, correlationId);
         session.Store(credential);
         session.Events.StartStream<UserAggregate>(userId, new UserRegistered(userId, email));
-        await session.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await session.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception.GetBaseException() is DbException { SqlState: "23505" })
+        {
+            throw new BusinessRuleException("A user with this email already exists.");
+        }
 
         return new AuthResult(userId, email, tokenService.Issue(userId, email));
     }
