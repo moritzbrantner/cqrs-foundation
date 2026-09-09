@@ -46,13 +46,13 @@ public static class AddTenantMemberHandler
         string correlationId,
         CancellationToken cancellationToken)
     {
-        await EnsureUserExists(command.UserId, store, cancellationToken);
         await using var session = store.LightweightSession(SystemTenancy.For(command.TenantId));
         AuditMetadata.Apply(session, actorId, correlationId);
 
         var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
         var tenant = stream.Aggregate ?? throw new KeyNotFoundException("Tenant not found.");
         EnsureCanManageMembers(tenant, actorId);
+        await EnsureUserExists(command.UserId, store, cancellationToken);
         stream.AppendOne(tenant.AddMember(command.UserId, command.Role));
         await session.SaveChangesAsync(cancellationToken);
     }
