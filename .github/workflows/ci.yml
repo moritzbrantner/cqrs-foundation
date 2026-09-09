@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: cqrs_foundation_test
+          POSTGRES_USER: cqrs
+          POSTGRES_PASSWORD: cqrs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cqrs -d cqrs_foundation_test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    env:
+      TEST_POSTGRES: Host=localhost;Port=5432;Database=cqrs_foundation_test;Username=cqrs;Password=cqrs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore cqrs-foundation.slnx
+      - run: dotnet build cqrs-foundation.slnx --configuration Release --no-restore
+      - run: dotnet test cqrs-foundation.slnx --configuration Release --no-build

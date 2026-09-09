@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/CqrsFoundation/CqrsFoundation.csproj" />
+  <Project Path="tests/CqrsFoundation.Tests/CqrsFoundation.Tests.csproj" />
+</Solution>
