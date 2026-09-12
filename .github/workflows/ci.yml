@@ -25,7 +25,7 @@ jobs:
     env:
       TEST_POSTGRES: Host=localhost;Port=5432;Database=cqrs_foundation_test;Username=cqrs;Password=cqrs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
