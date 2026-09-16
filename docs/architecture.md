@@ -18,6 +18,16 @@ Aggregates are immutable projections of their streams. Domain methods return eve
 
 Every write carries explicit command metadata. The API preserves an incoming `X-Correlation-Id` across related commands, otherwise starts correlation from the ASP.NET Core request trace identifier. The individual request trace identifier is recorded as causation. Actor, correlation, and causation are stored with the appended events, and correlation is echoed in the response header.
 
+### Retry idempotency
+
+Write requests may additionally provide `Idempotency-Key`. The key is bounded at the HTTP boundary and is scoped by Marten tenancy plus the current actor. A command stores a `CommandReceipt` in the same Marten transaction as its business events/documents. The receipt contains only a versioned command fingerprint and, for create commands, the created resource id.
+
+A retry with the same key and fingerprint returns the previously committed outcome without executing the domain decision again. Reusing the key with different command input fails closed. Concurrent duplicates converge through the same receipt identity and, for resource creation, the same deterministic UUID; if one request loses a commit race it re-reads the committed receipt before surfacing the persistence failure.
+
+Registration follows the same rule without storing passwords, password-derived fingerprints, or access tokens in the receipt. A registration replay loads the existing credential and verifies the supplied password against its normal password hash before issuing a fresh access token.
+
+Without `Idempotency-Key`, command behavior and randomly generated resource identifiers remain unchanged.
+
 ## Read path
 
 Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates.
