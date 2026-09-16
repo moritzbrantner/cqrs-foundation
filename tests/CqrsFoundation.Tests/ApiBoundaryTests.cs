@@ -66,11 +66,13 @@ public sealed class ApiBoundaryTests
             TraceIdentifier = "request-123"
         };
         context.Request.Headers[Endpoints.CorrelationIdHeader] = " business-flow-42 ";
+        context.Request.Headers[Endpoints.IdempotencyKeyHeader] = " create-customer-17 ";
 
         var metadata = Endpoints.CommandMetadataFor(context);
 
         Assert.AreEqual("business-flow-42", metadata.CorrelationId);
         Assert.AreEqual("request-123", metadata.CausationId);
+        Assert.AreEqual("create-customer-17", metadata.IdempotencyKey);
         Assert.AreEqual("business-flow-42", context.Response.Headers[Endpoints.CorrelationIdHeader].ToString());
     }
 
@@ -86,6 +88,25 @@ public sealed class ApiBoundaryTests
 
         Assert.AreEqual("request-456", metadata.CorrelationId);
         Assert.AreEqual("request-456", metadata.CausationId);
+        Assert.IsNull(metadata.IdempotencyKey);
         Assert.AreEqual("request-456", context.Response.Headers[Endpoints.CorrelationIdHeader].ToString());
+    }
+
+    [TestMethod]
+    public void Empty_idempotency_key_is_rejected()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers[Endpoints.IdempotencyKeyHeader] = "   ";
+
+        Assert.ThrowsExactly<BadHttpRequestException>(() => Endpoints.CommandMetadataFor(context));
+    }
+
+    [TestMethod]
+    public void Oversized_idempotency_key_is_rejected()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers[Endpoints.IdempotencyKeyHeader] = new string('x', Endpoints.MaxIdempotencyKeyLength + 1);
+
+        Assert.ThrowsExactly<BadHttpRequestException>(() => Endpoints.CommandMetadataFor(context));
     }
 }
