@@ -1,6 +1,7 @@
 using CqrsFoundation.Application;
 using CqrsFoundation.Auth;
 using CqrsFoundation.Domain.Common;
+using CqrsFoundation.Domain.Tenants;
 using CqrsFoundation.Infrastructure;
 using Marten;
 using Microsoft.AspNetCore.Identity;
@@ -113,7 +114,12 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
-        return Results.Ok(await TenantQueries.GetCurrent(tenant.TenantId, store, cancellationToken));
+        EnsurePermission(tenant, TenantPermissions.TenantRead);
+        return Results.Ok(await TenantQueries.GetCurrent(
+            tenant.TenantId,
+            CurrentUser.Id(httpContext.User),
+            store,
+            cancellationToken));
     }
 
     private static async Task<IResult> GetTenantMembers(
@@ -122,8 +128,12 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
-        var view = await TenantQueries.GetCurrent(tenant.TenantId, store, cancellationToken);
-        return Results.Ok(view.Members);
+        EnsurePermission(tenant, TenantPermissions.MembersRead);
+        return Results.Ok(await TenantQueries.ListMembers(
+            tenant.TenantId,
+            CurrentUser.Id(httpContext.User),
+            store,
+            cancellationToken));
     }
 
     private static async Task<IResult> AddTenantMember(
@@ -133,6 +143,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
+        EnsurePermission(tenant, TenantPermissions.MembersManage);
         await AddTenantMemberHandler.Handle(
             new AddTenantMember(
                 tenant.TenantId,
@@ -153,6 +164,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
+        EnsurePermission(tenant, TenantPermissions.MembersManage);
         await ChangeTenantMemberRoleHandler.Handle(
             new ChangeTenantMemberRole(
                 tenant.TenantId,
@@ -172,6 +184,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
+        EnsurePermission(tenant, TenantPermissions.MembersManage);
         await RemoveTenantMemberHandler.Handle(
             new RemoveTenantMember(tenant.TenantId, userId),
             CurrentUser.Id(httpContext.User),
@@ -187,7 +200,12 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
-        return Results.Ok(await CustomerQueries.List(tenant.TenantId, store, cancellationToken));
+        EnsurePermission(tenant, TenantPermissions.CustomersRead);
+        return Results.Ok(await CustomerQueries.List(
+            tenant.TenantId,
+            CurrentUser.Id(httpContext.User),
+            store,
+            cancellationToken));
     }
 
     private static async Task<IResult> CreateCustomer(
@@ -197,7 +215,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
-        EnsureCanWrite(tenant);
+        EnsurePermission(tenant, TenantPermissions.CustomersWrite);
         var customerId = await CreateCustomerHandler.Handle(
             new CreateCustomer(
                 tenant.TenantId,
@@ -216,7 +234,13 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
-        return Results.Ok(await CustomerQueries.Get(tenant.TenantId, customerId, store, cancellationToken));
+        EnsurePermission(tenant, TenantPermissions.CustomersRead);
+        return Results.Ok(await CustomerQueries.Get(
+            tenant.TenantId,
+            CurrentUser.Id(httpContext.User),
+            customerId,
+            store,
+            cancellationToken));
     }
 
     private static async Task<IResult> RenameCustomer(
@@ -227,7 +251,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
-        EnsureCanWrite(tenant);
+        EnsurePermission(tenant, TenantPermissions.CustomersWrite);
         await RenameCustomerHandler.Handle(
             new RenameCustomer(
                 tenant.TenantId,
@@ -247,7 +271,7 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
-        EnsureCanWrite(tenant);
+        EnsurePermission(tenant, TenantPermissions.CustomersWrite);
         await DeactivateCustomerHandler.Handle(
             new DeactivateCustomer(tenant.TenantId, customerId),
             CurrentUser.Id(httpContext.User),
@@ -264,8 +288,10 @@ public static class Endpoints
         CancellationToken cancellationToken)
     {
         var tenant = RequireTenant(httpContext);
+        EnsurePermission(tenant, TenantPermissions.AuditRead);
         return Results.Ok(await CustomerQueries.History(
             tenant.TenantId,
+            CurrentUser.Id(httpContext.User),
             customerId,
             store,
             cancellationToken));
@@ -311,11 +337,12 @@ public static class Endpoints
     internal static string RequireRequestString(string? value, string fieldName) =>
         value ?? throw new BadHttpRequestException($"The '{fieldName}' field is required.");
 
-    internal static void EnsureCanWrite(TenantContext tenant)
+    internal static void EnsurePermission(TenantContext tenant, string permission)
     {
-        if (!tenant.CanWrite)
+        if (!tenant.HasPermission(permission))
         {
-            throw new ForbiddenAccessException("The current user cannot modify tenant resources.");
+            throw new ForbiddenAccessException(
+                $"The current user does not have the '{permission}' permission.");
         }
     }
 }
