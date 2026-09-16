@@ -9,7 +9,11 @@ This repository is deliberately small. Preserve the architectural boundaries ins
 - Domain decisions return events. Do not mutate the aggregate returned by `FetchForWriting<T>()`.
 - Apply actor, correlation, and causation metadata to every write session.
 - Preserve an incoming `X-Correlation-Id` across related HTTP commands; use the individual request trace identifier as causation.
-- Never put passwords, hashes, MFA secrets, access tokens, or refresh tokens into immutable events.
+- `Idempotency-Key` is optional. When present, store the command receipt in the same Marten transaction as the command's events/documents.
+- Scope receipts by tenant and actor. A matching key may replay only the same versioned command fingerprint; changed command input must fail closed.
+- Resource-creating commands may derive a stable resource id only when an idempotency key is present so concurrent retries converge on the same identity.
+- Keep versioned idempotency operation names stable. If the fingerprint semantics change incompatibly, increment the operation version.
+- Never put passwords, hashes, MFA secrets, access tokens, refresh tokens, or other authentication secrets into immutable events or idempotency receipts.
 
 ## Queries
 

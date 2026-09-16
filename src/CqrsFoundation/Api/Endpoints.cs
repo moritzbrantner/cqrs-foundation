@@ -18,6 +18,8 @@ public sealed record RenameCustomerRequest(string? Name);
 public static class Endpoints
 {
     internal const string CorrelationIdHeader = "X-Correlation-Id";
+    internal const string IdempotencyKeyHeader = "Idempotency-Key";
+    internal const int MaxIdempotencyKeyLength = 128;
 
     public static void MapFoundationEndpoints(this WebApplication app)
     {
@@ -279,7 +281,29 @@ public static class Endpoints
         var correlationId = string.IsNullOrWhiteSpace(requestedCorrelationId)
             ? context.TraceIdentifier
             : requestedCorrelationId;
-        var metadata = new CommandMetadata(correlationId, context.TraceIdentifier);
+
+        string? idempotencyKey = null;
+        if (context.Request.Headers.TryGetValue(IdempotencyKeyHeader, out var idempotencyValues))
+        {
+            if (idempotencyValues.Count != 1)
+            {
+                throw new BadHttpRequestException($"The '{IdempotencyKeyHeader}' header must have exactly one value.");
+            }
+
+            idempotencyKey = idempotencyValues[0]?.Trim();
+            if (string.IsNullOrWhiteSpace(idempotencyKey))
+            {
+                throw new BadHttpRequestException($"The '{IdempotencyKeyHeader}' header cannot be empty.");
+            }
+
+            if (idempotencyKey.Length > MaxIdempotencyKeyLength)
+            {
+                throw new BadHttpRequestException(
+                    $"The '{IdempotencyKeyHeader}' header cannot exceed {MaxIdempotencyKeyLength} characters.");
+            }
+        }
+
+        var metadata = new CommandMetadata(correlationId, context.TraceIdentifier, idempotencyKey);
         context.Response.Headers[CorrelationIdHeader] = correlationId;
         return metadata;
     }
