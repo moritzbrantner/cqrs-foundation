@@ -8,8 +8,7 @@ public sealed record TenantContext(Guid TenantId, string Role)
 {
     public const string ItemKey = "cqrs-foundation.tenant";
 
-    public bool CanWrite => Role is TenantRoles.Owner or TenantRoles.Admin;
-    public bool CanManageMembers => Role is TenantRoles.Owner or TenantRoles.Admin;
+    public bool HasPermission(string permission) => TenantRoles.Grants(Role, permission);
 
     public static TenantContext? From(HttpContext context) =>
         context.Items.TryGetValue(ItemKey, out var value) ? value as TenantContext : null;
