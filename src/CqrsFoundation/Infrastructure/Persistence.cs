@@ -43,12 +43,15 @@ public static class Persistence
     }
 }
 
+public sealed record CommandMetadata(string CorrelationId, string CausationId);
+
 public static class AuditMetadata
 {
-    public static void Apply(IDocumentSession session, Guid actorId, string correlationId)
+    public static void Apply(IDocumentSession session, Guid actorId, CommandMetadata metadata)
     {
         session.LastModifiedBy = actorId.ToString();
-        session.CorrelationId = correlationId;
+        session.CorrelationId = metadata.CorrelationId;
+        session.CausationId = metadata.CausationId;
         session.SetHeader("actor_id", actorId.ToString());
     }
 }

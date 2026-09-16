@@ -7,7 +7,8 @@ This repository is deliberately small. Preserve the architectural boundaries ins
 - Commands may load the current event-sourced aggregate and append events.
 - Existing streams must use Marten `FetchForWriting<T>()` so optimistic concurrency remains explicit.
 - Domain decisions return events. Do not mutate the aggregate returned by `FetchForWriting<T>()`.
-- Apply actor and correlation metadata to every write session.
+- Apply actor, correlation, and causation metadata to every write session.
+- Preserve an incoming `X-Correlation-Id` across related HTTP commands; use the individual request trace identifier as causation.
 - Never put passwords, hashes, MFA secrets, access tokens, or refresh tokens into immutable events.
 
 ## Queries
