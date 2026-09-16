@@ -18,9 +18,19 @@ Aggregates are immutable projections of their streams. Domain methods return eve
 
 Every write carries explicit command metadata. The API preserves an incoming `X-Correlation-Id` across related commands, otherwise starts correlation from the ASP.NET Core request trace identifier. The individual request trace identifier is recorded as causation. Actor, correlation, and causation are stored with the appended events, and correlation is echoed in the response header.
 
+### Authorization
+
+Permissions are the authorization primitive. Built-in tenant roles bundle named permissions such as `customers.read`, `customers.write`, `members.read`, `members.manage`, and `audit.read`; handlers ask for permissions rather than branching on role names.
+
+Application handlers are authoritative. The HTTP tenant middleware and endpoints perform the same checks as an early rejection optimization, but direct handler invocation does not depend on them. Tenant-scoped command handlers validate permission from the event-sourced `TenantAggregate`; business writes pin the tenant stream version so a concurrent membership/role change invalidates the command transaction. Query handlers validate permission from the inline `TenantView` before returning tenant data.
+
+The tenant owner remains a domain lifecycle concept: the owner cannot be removed or demoted even though owner/admin currently share the ordinary management permission bundle.
+
 ### Retry idempotency
 
 Write requests may additionally provide `Idempotency-Key`. The key is bounded at the HTTP boundary and is scoped by Marten tenancy plus the current actor. A command stores a `CommandReceipt` in the same Marten transaction as its business events/documents. The receipt contains only a versioned command fingerprint and, for create commands, the created resource id.
+
+Authorization is checked before receipt lookup. A retry therefore still requires the actor's current permission; an old receipt is not a capability after access has been revoked.
 
 A retry with the same key and fingerprint returns the previously committed outcome without executing the domain decision again. Reusing the key with different command input fails closed. Concurrent duplicates converge through the same receipt identity and, for resource creation, the same deterministic UUID; if one request loses a commit race it re-reads the committed receipt before surfacing the persistence failure.
 
@@ -30,7 +40,7 @@ Without `Idempotency-Key`, command behavior and randomly generated resource iden
 
 ## Read path
 
-Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates.
+Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates. Tenant query handlers authorize the actor before exposing the requested projection/history data.
 
 ## Audit path
 
@@ -46,7 +56,7 @@ The MVP issues local JWT bearer tokens. This is an authentication boundary rathe
 
 Business streams and projections use Marten conjoined tenancy. A request may select a tenant with `X-Tenant-Id`; middleware loads that tenant's projection and verifies that the authenticated user is a member before tenant-scoped endpoints run.
 
-Tenant membership and roles are themselves event-sourced. The owner/admin authorization check for membership changes is repeated inside the command handler against the current `TenantAggregate`, not trusted solely from middleware state.
+Tenant membership and roles are themselves event-sourced. Membership-changing handlers repeat authorization against the current `TenantAggregate`; they do not trust middleware state or an idempotency receipt as authority.
 
 ## Deliberate non-features
 
