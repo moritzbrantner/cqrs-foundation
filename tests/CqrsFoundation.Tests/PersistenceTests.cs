@@ -27,11 +27,13 @@ public sealed class PersistenceTests
         var customerId = Guid.NewGuid();
         var tenantA = Guid.NewGuid();
         var tenantB = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
         var metadata = new CommandMetadata("integration-test", "integration-test-command");
+        await SeedTenant(store, tenantA, actorId);
 
         await using (var session = store.LightweightSession(SystemTenancy.For(tenantA)))
         {
-            AuditMetadata.Apply(session, Guid.NewGuid(), metadata);
+            AuditMetadata.Apply(session, actorId, metadata);
             session.Events.StartStream<CustomerAggregate>(
                 customerId,
                 new CustomerCreated(customerId, "Projected customer"));
@@ -52,6 +54,7 @@ public sealed class PersistenceTests
 
         var historyItems = await CustomerQueries.History(
             tenantA,
+            actorId,
             customerId,
             store,
             CancellationToken.None);
@@ -80,19 +83,7 @@ public sealed class PersistenceTests
         var tenantId = Guid.NewGuid();
         var ownerId = Guid.NewGuid();
         var memberId = Guid.NewGuid();
-
-        await using (var session = store.LightweightSession(SystemTenancy.For(tenantId)))
-        {
-            AuditMetadata.Apply(
-                session,
-                ownerId,
-                new CommandMetadata("authorization-order-test-setup", "authorization-order-test-setup-command"));
-            session.Events.StartStream<TenantAggregate>(
-                tenantId,
-                new TenantCreated(tenantId, "Authorization test", ownerId),
-                new TenantMemberAdded(memberId, TenantRoles.Member));
-            await session.SaveChangesAsync();
-        }
+        await SeedTenant(store, tenantId, ownerId, (memberId, TenantRoles.Member));
 
         try
         {
@@ -108,6 +99,57 @@ public sealed class PersistenceTests
         {
             // The caller must be rejected before target-user existence is observable.
         }
+    }
+
+    [TestMethod]
+    public async Task Direct_customer_write_handler_rejects_read_only_member()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("TEST_POSTGRES");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Assert.Inconclusive("TEST_POSTGRES is not configured.");
+            return;
+        }
+
+        using var store = DocumentStore.For(options => Persistence.Configure(options, connectionString));
+        var tenantId = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        var memberId = Guid.NewGuid();
+        await SeedTenant(store, tenantId, ownerId, (memberId, TenantRoles.Member));
+
+        await Assert.ThrowsExactlyAsync<ForbiddenAccessException>(() =>
+            CreateCustomerHandler.Handle(
+                new CreateCustomer(tenantId, "Denied customer"),
+                memberId,
+                store,
+                new CommandMetadata("direct-write", "direct-write-request"),
+                CancellationToken.None));
+
+        await using var query = store.QuerySession(SystemTenancy.For(tenantId));
+        Assert.HasCount(0, await query.Query<CustomerView>().ToListAsync());
+    }
+
+    [TestMethod]
+    public async Task Direct_customer_query_rejects_non_member()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("TEST_POSTGRES");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Assert.Inconclusive("TEST_POSTGRES is not configured.");
+            return;
+        }
+
+        using var store = DocumentStore.For(options => Persistence.Configure(options, connectionString));
+        var tenantId = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        await SeedTenant(store, tenantId, ownerId);
+
+        await Assert.ThrowsExactlyAsync<ForbiddenAccessException>(() =>
+            CustomerQueries.List(
+                tenantId,
+                Guid.NewGuid(),
+                store,
+                CancellationToken.None));
     }
 
     [TestMethod]
@@ -157,6 +199,7 @@ public sealed class PersistenceTests
         var actorId = Guid.NewGuid();
         var key = $"customer-{Guid.NewGuid():N}";
         var command = new CreateCustomer(tenantId, "Concurrent retry customer");
+        await SeedTenant(store, tenantId, actorId);
 
         var first = CreateCustomerHandler.Handle(
             command,
@@ -192,6 +235,7 @@ public sealed class PersistenceTests
         var actorId = Guid.NewGuid();
         var key = $"reuse-{Guid.NewGuid():N}";
         var metadata = new CommandMetadata("reuse", "reuse-request", key);
+        await SeedTenant(store, tenantId, actorId);
 
         var customerId = await CreateCustomerHandler.Handle(
             new CreateCustomer(tenantId, "Original"),
@@ -214,6 +258,49 @@ public sealed class PersistenceTests
         {
             StringAssert.Contains(exception.Message, "idempotency key");
         }
+
+        await using var query = store.QuerySession(SystemTenancy.For(tenantId));
+        Assert.HasCount(1, await query.Events.FetchStreamAsync(customerId));
+    }
+
+    [TestMethod]
+    public async Task Idempotent_customer_retry_rechecks_current_permission()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("TEST_POSTGRES");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Assert.Inconclusive("TEST_POSTGRES is not configured.");
+            return;
+        }
+
+        using var store = DocumentStore.For(options => Persistence.Configure(options, connectionString));
+        var tenantId = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var key = $"permission-replay-{Guid.NewGuid():N}";
+        await SeedTenant(store, tenantId, ownerId, (adminId, TenantRoles.Admin));
+
+        var customerId = await CreateCustomerHandler.Handle(
+            new CreateCustomer(tenantId, "Authorized once"),
+            adminId,
+            store,
+            new CommandMetadata("permission-first", "permission-first-request", key),
+            CancellationToken.None);
+
+        await ChangeTenantMemberRoleHandler.Handle(
+            new ChangeTenantMemberRole(tenantId, adminId, TenantRoles.Member),
+            ownerId,
+            store,
+            new CommandMetadata("permission-revoke", "permission-revoke-request"),
+            CancellationToken.None);
+
+        await Assert.ThrowsExactlyAsync<ForbiddenAccessException>(() =>
+            CreateCustomerHandler.Handle(
+                new CreateCustomer(tenantId, "Authorized once"),
+                adminId,
+                store,
+                new CommandMetadata("permission-retry", "permission-retry-request", key),
+                CancellationToken.None));
 
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
         Assert.HasCount(1, await query.Events.FetchStreamAsync(customerId));
@@ -280,5 +367,26 @@ public sealed class PersistenceTests
         {
             StringAssert.Contains(exception.Message, "registration credentials");
         }
+    }
+
+    private static async Task SeedTenant(
+        IDocumentStore store,
+        Guid tenantId,
+        Guid ownerId,
+        params (Guid UserId, string Role)[] members)
+    {
+        await using var session = store.LightweightSession(SystemTenancy.For(tenantId));
+        AuditMetadata.Apply(
+            session,
+            ownerId,
+            new CommandMetadata("tenant-seed", $"tenant-seed-{tenantId:N}"));
+        var events = new List<object>
+        {
+            new TenantCreated(tenantId, "Authorization test", ownerId)
+        };
+        events.AddRange(members.Select(member =>
+            (object)new TenantMemberAdded(member.UserId, TenantRoles.Normalize(member.Role))));
+        session.Events.StartStream<TenantAggregate>(tenantId, events.ToArray());
+        await session.SaveChangesAsync();
     }
 }
