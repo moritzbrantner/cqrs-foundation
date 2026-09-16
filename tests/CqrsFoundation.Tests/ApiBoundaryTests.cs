@@ -13,19 +13,29 @@ namespace CqrsFoundation.Tests;
 public sealed class ApiBoundaryTests
 {
     [TestMethod]
-    public void Read_only_tenant_member_cannot_write()
+    public void Read_only_tenant_member_cannot_write_customers()
     {
         var tenant = new TenantContext(Guid.NewGuid(), TenantRoles.Member);
 
-        Assert.ThrowsExactly<ForbiddenAccessException>(() => Endpoints.EnsureCanWrite(tenant));
+        Assert.ThrowsExactly<ForbiddenAccessException>(
+            () => Endpoints.EnsurePermission(tenant, TenantPermissions.CustomersWrite));
     }
 
     [TestMethod]
-    public void Tenant_admin_can_write()
+    public void Read_only_tenant_member_can_read_customers()
+    {
+        var tenant = new TenantContext(Guid.NewGuid(), TenantRoles.Member);
+
+        Endpoints.EnsurePermission(tenant, TenantPermissions.CustomersRead);
+    }
+
+    [TestMethod]
+    public void Tenant_admin_can_write_and_manage_members()
     {
         var tenant = new TenantContext(Guid.NewGuid(), TenantRoles.Admin);
 
-        Endpoints.EnsureCanWrite(tenant);
+        Endpoints.EnsurePermission(tenant, TenantPermissions.CustomersWrite);
+        Endpoints.EnsurePermission(tenant, TenantPermissions.MembersManage);
     }
 
     [TestMethod]
