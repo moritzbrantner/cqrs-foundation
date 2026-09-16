@@ -7,6 +7,8 @@ A small, opinionated .NET 10 foundation for business software using strict CQRS,
 - ASP.NET Core / C# 14
 - PostgreSQL + Marten 9
 - event-sourced users, tenant membership/roles, and an example `Customer` aggregate
+- named tenant permissions with roles as permission bundles
+- handler-authoritative authorization for both commands and tenant queries
 - inline read projections separated from write aggregates
 - Marten optimistic stream concurrency through `FetchForWriting<T>()`
 - conjoined tenant isolation
@@ -28,6 +30,9 @@ WRITE                         READ                         AUDIT
 Command                       Query                        History query
    |                            |                              |
    v                            v                              v
+permission check           permission check              permission check
+   |                            |                              |
+   v                            v                              v
 Aggregate/decider          Read projection               Event stream
    |
    v
@@ -36,7 +41,7 @@ Events
    +----------------------> inline projection
 ```
 
-Commands and queries are separated in `Application/`. Commands append events; queries only read projections/history. See [`docs/architecture.md`](docs/architecture.md) and [`AGENTS.md`](AGENTS.md) for the rules.
+Commands and queries are separated in `Application/`. Commands append events; queries only read projections/history. Tenant permissions are checked inside handlers, so middleware and endpoint checks are only fast-fail optimizations. See [`docs/architecture.md`](docs/architecture.md) and [`AGENTS.md`](AGENTS.md) for the rules.
 
 ## Run locally
 
@@ -90,7 +95,7 @@ For a command that may be retried after a timeout or lost response, send a stabl
 Idempotency-Key: <unique-command-key>
 ```
 
-The key is optional and scoped to the current tenant and actor. The same key with the same command returns the already committed outcome instead of appending another event; using it for different command input is rejected. The receipt is committed atomically with the business write. Registration retries revalidate the password and issue a fresh access token rather than storing authentication secrets in the receipt.
+The key is optional and scoped to the current tenant and actor. The same key with the same command returns the already committed outcome instead of appending another event; using it for different command input is rejected. The receipt is committed atomically with the business write. Current permission is checked before replay, so revoking access also prevents an old key from being reused as authority. Registration retries revalidate the password and issue a fresh access token rather than storing authentication secrets in the receipt.
 
 You can then manage tenant membership and roles, create/rename/deactivate customers, query customer projections, and inspect `/api/customers/{id}/history` independently of the current read model. History includes actor, correlation, and causation metadata for each event.
 
