@@ -114,7 +114,15 @@ public static class RenameCustomerHandler
             return;
         }
 
-        stream.AppendMany(events);
+        if (events.Count == 0)
+        {
+            stream.AlwaysEnforceConsistency = true;
+        }
+        else
+        {
+            stream.AppendMany(events);
+        }
+
         CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
         try
         {
@@ -173,7 +181,15 @@ public static class DeactivateCustomerHandler
             return;
         }
 
-        stream.AppendMany(events);
+        if (events.Count == 0)
+        {
+            stream.AlwaysEnforceConsistency = true;
+        }
+        else
+        {
+            stream.AppendMany(events);
+        }
+
         CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
         try
         {
