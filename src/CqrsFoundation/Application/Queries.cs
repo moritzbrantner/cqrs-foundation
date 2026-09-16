@@ -13,6 +13,7 @@ public sealed record EventHistoryItem(
     string Type,
     string? ActorId,
     string? CorrelationId,
+    string? CausationId,
     object Data);
 
 public static class UserQueries
@@ -93,6 +94,7 @@ public static class CustomerQueries
                 @event.Data.GetType().Name,
                 actorId,
                 @event.CorrelationId,
+                @event.CausationId,
                 @event.Data);
         }).ToArray();
     }
