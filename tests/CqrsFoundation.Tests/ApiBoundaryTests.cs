@@ -57,4 +57,35 @@ public sealed class ApiBoundaryTests
 
         StringAssert.Contains(exception.Message, fieldName);
     }
+
+    [TestMethod]
+    public void Command_metadata_preserves_caller_correlation_and_uses_request_as_causation()
+    {
+        var context = new DefaultHttpContext
+        {
+            TraceIdentifier = "request-123"
+        };
+        context.Request.Headers[Endpoints.CorrelationIdHeader] = " business-flow-42 ";
+
+        var metadata = Endpoints.CommandMetadataFor(context);
+
+        Assert.AreEqual("business-flow-42", metadata.CorrelationId);
+        Assert.AreEqual("request-123", metadata.CausationId);
+        Assert.AreEqual("business-flow-42", context.Response.Headers[Endpoints.CorrelationIdHeader].ToString());
+    }
+
+    [TestMethod]
+    public void Command_metadata_falls_back_to_request_trace_for_new_correlation()
+    {
+        var context = new DefaultHttpContext
+        {
+            TraceIdentifier = "request-456"
+        };
+
+        var metadata = Endpoints.CommandMetadataFor(context);
+
+        Assert.AreEqual("request-456", metadata.CorrelationId);
+        Assert.AreEqual("request-456", metadata.CausationId);
+        Assert.AreEqual("request-456", context.Response.Headers[Endpoints.CorrelationIdHeader].ToString());
+    }
 }
