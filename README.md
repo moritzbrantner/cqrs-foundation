@@ -12,6 +12,7 @@ A small, opinionated .NET 10 foundation for business software using strict CQRS,
 - conjoined tenant isolation
 - JWT bearer authentication with password hashing via ASP.NET Core Identity primitives
 - immutable event history with actor, correlation, causation, and tenant metadata
+- caller-propagated `X-Correlation-Id` with request-specific causation
 - Problem Details error handling
 - PostgreSQL Docker Compose setup
 - unit tests plus a real PostgreSQL/Marten projection-isolation test in CI
@@ -72,7 +73,15 @@ Authorization: Bearer <token>
 X-Tenant-Id: <tenant-guid>
 ```
 
-You can then manage tenant membership and roles, create/rename/deactivate customers, query customer projections, and inspect `/api/customers/{id}/history` independently of the current read model.
+For a business operation that spans multiple commands, send the same correlation id on each write:
+
+```text
+X-Correlation-Id: <operation-id>
+```
+
+If omitted, the request trace identifier starts the correlation. Each write records that request trace separately as causation and echoes the effective `X-Correlation-Id` response header.
+
+You can then manage tenant membership and roles, create/rename/deactivate customers, query customer projections, and inspect `/api/customers/{id}/history` independently of the current read model. History includes actor, correlation, and causation metadata for each event.
 
 ## Persistence policy
 
