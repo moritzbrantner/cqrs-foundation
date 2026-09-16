@@ -15,7 +15,7 @@ public static class CreateCustomerHandler
         CreateCustomer command,
         Guid actorId,
         IDocumentStore store,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         var name = command.Name.Trim();
@@ -26,7 +26,7 @@ public static class CreateCustomerHandler
 
         var customerId = Guid.NewGuid();
         await using var session = store.LightweightSession(SystemTenancy.For(command.TenantId));
-        AuditMetadata.Apply(session, actorId, correlationId);
+        AuditMetadata.Apply(session, actorId, metadata);
         session.Events.StartStream<CustomerAggregate>(
             customerId,
             new CustomerCreated(customerId, name));
@@ -41,11 +41,11 @@ public static class RenameCustomerHandler
         RenameCustomer command,
         Guid actorId,
         IDocumentStore store,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(SystemTenancy.For(command.TenantId));
-        AuditMetadata.Apply(session, actorId, correlationId);
+        AuditMetadata.Apply(session, actorId, metadata);
         var stream = await session.Events.FetchForWriting<CustomerAggregate>(command.CustomerId, cancellationToken);
         var customer = stream.Aggregate ?? throw new KeyNotFoundException("Customer not found.");
         var events = customer.Rename(command.Name);
@@ -65,11 +65,11 @@ public static class DeactivateCustomerHandler
         DeactivateCustomer command,
         Guid actorId,
         IDocumentStore store,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(SystemTenancy.For(command.TenantId));
-        AuditMetadata.Apply(session, actorId, correlationId);
+        AuditMetadata.Apply(session, actorId, metadata);
         var stream = await session.Events.FetchForWriting<CustomerAggregate>(command.CustomerId, cancellationToken);
         var customer = stream.Aggregate ?? throw new KeyNotFoundException("Customer not found.");
         var events = customer.Deactivate();
