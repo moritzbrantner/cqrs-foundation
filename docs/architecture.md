@@ -16,13 +16,15 @@ Commands use a tenant-scoped Marten `IDocumentSession`. New aggregates start a t
 
 Aggregates are immutable projections of their streams. Domain methods return events rather than changing the loaded aggregate instance.
 
+Every write carries explicit command metadata. The API preserves an incoming `X-Correlation-Id` across related commands, otherwise starts correlation from the ASP.NET Core request trace identifier. The individual request trace identifier is recorded as causation. Actor, correlation, and causation are stored with the appended events, and correlation is echoed in the response header.
+
 ## Read path
 
 Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates.
 
 ## Audit path
 
-The event stream is the canonical history. Event metadata stores the tenant automatically and opts into correlation, causation, username, and headers. The foundation adds an `actor_id` header on writes.
+The event stream is the canonical history. Event metadata stores the tenant automatically and opts into correlation, causation, username, and headers. The foundation adds an `actor_id` header on writes. History responses expose actor, correlation, and causation independently of the current read model.
 
 ## Authentication and users
 
