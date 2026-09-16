@@ -92,6 +92,14 @@ public static class AddTenantMemberHandler
             command.UserId.ToString("D"),
             role);
         await using var session = store.LightweightSession(tenancyId);
+        var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
+        var tenant = stream.Aggregate
+            ?? throw new ForbiddenAccessException("The current user cannot access this tenant.");
+        TenantAuthorization.EnsurePermission(
+            tenant.Members,
+            actorId,
+            TenantPermissions.MembersManage);
+
         if (await CommandIdempotency.LoadExisting(
                 session,
                 actorId,
@@ -102,11 +110,8 @@ public static class AddTenantMemberHandler
             return;
         }
 
-        AuditMetadata.Apply(session, actorId, metadata);
-        var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
-        var tenant = stream.Aggregate ?? throw new KeyNotFoundException("Tenant not found.");
-        EnsureCanManageMembers(tenant, actorId);
         await EnsureUserExists(command.UserId, store, cancellationToken);
+        AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.AddMember(command.UserId, role));
         CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
 
@@ -139,15 +144,6 @@ public static class AddTenantMemberHandler
             throw new KeyNotFoundException("User not found.");
         }
     }
-
-    internal static void EnsureCanManageMembers(TenantAggregate tenant, Guid actorId)
-    {
-        if (!tenant.Members.TryGetValue(actorId, out var role) ||
-            role is not (TenantRoles.Owner or TenantRoles.Admin))
-        {
-            throw new ForbiddenAccessException("The current user cannot manage tenant members.");
-        }
-    }
 }
 
 public static class ChangeTenantMemberRoleHandler
@@ -168,6 +164,14 @@ public static class ChangeTenantMemberRoleHandler
             command.UserId.ToString("D"),
             role);
         await using var session = store.LightweightSession(tenancyId);
+        var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
+        var tenant = stream.Aggregate
+            ?? throw new ForbiddenAccessException("The current user cannot access this tenant.");
+        TenantAuthorization.EnsurePermission(
+            tenant.Members,
+            actorId,
+            TenantPermissions.MembersManage);
+
         if (await CommandIdempotency.LoadExisting(
                 session,
                 actorId,
@@ -179,9 +183,6 @@ public static class ChangeTenantMemberRoleHandler
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
-        var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
-        var tenant = stream.Aggregate ?? throw new KeyNotFoundException("Tenant not found.");
-        AddTenantMemberHandler.EnsureCanManageMembers(tenant, actorId);
         stream.AppendOne(tenant.ChangeRole(command.UserId, role));
         CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
 
@@ -223,6 +224,14 @@ public static class RemoveTenantMemberHandler
             Operation,
             command.UserId.ToString("D"));
         await using var session = store.LightweightSession(tenancyId);
+        var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
+        var tenant = stream.Aggregate
+            ?? throw new ForbiddenAccessException("The current user cannot access this tenant.");
+        TenantAuthorization.EnsurePermission(
+            tenant.Members,
+            actorId,
+            TenantPermissions.MembersManage);
+
         if (await CommandIdempotency.LoadExisting(
                 session,
                 actorId,
@@ -234,9 +243,6 @@ public static class RemoveTenantMemberHandler
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
-        var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
-        var tenant = stream.Aggregate ?? throw new KeyNotFoundException("Tenant not found.");
-        AddTenantMemberHandler.EnsureCanManageMembers(tenant, actorId);
         stream.AppendOne(tenant.RemoveMember(command.UserId));
         CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
 
