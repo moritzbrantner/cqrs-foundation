@@ -17,7 +17,7 @@ public static class CreateTenantHandler
         CreateTenant command,
         Guid actorId,
         IDocumentStore store,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         var name = command.Name.Trim();
@@ -28,7 +28,7 @@ public static class CreateTenantHandler
 
         var tenantId = Guid.NewGuid();
         await using var session = store.LightweightSession(SystemTenancy.For(tenantId));
-        AuditMetadata.Apply(session, actorId, correlationId);
+        AuditMetadata.Apply(session, actorId, metadata);
         session.Events.StartStream<TenantAggregate>(
             tenantId,
             new TenantCreated(tenantId, name, actorId));
@@ -43,11 +43,11 @@ public static class AddTenantMemberHandler
         AddTenantMember command,
         Guid actorId,
         IDocumentStore store,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(SystemTenancy.For(command.TenantId));
-        AuditMetadata.Apply(session, actorId, correlationId);
+        AuditMetadata.Apply(session, actorId, metadata);
 
         var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
         var tenant = stream.Aggregate ?? throw new KeyNotFoundException("Tenant not found.");
@@ -82,11 +82,11 @@ public static class ChangeTenantMemberRoleHandler
         ChangeTenantMemberRole command,
         Guid actorId,
         IDocumentStore store,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(SystemTenancy.For(command.TenantId));
-        AuditMetadata.Apply(session, actorId, correlationId);
+        AuditMetadata.Apply(session, actorId, metadata);
         var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
         var tenant = stream.Aggregate ?? throw new KeyNotFoundException("Tenant not found.");
         AddTenantMemberHandler.EnsureCanManageMembers(tenant, actorId);
@@ -101,11 +101,11 @@ public static class RemoveTenantMemberHandler
         RemoveTenantMember command,
         Guid actorId,
         IDocumentStore store,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         await using var session = store.LightweightSession(SystemTenancy.For(command.TenantId));
-        AuditMetadata.Apply(session, actorId, correlationId);
+        AuditMetadata.Apply(session, actorId, metadata);
         var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
         var tenant = stream.Aggregate ?? throw new KeyNotFoundException("Tenant not found.");
         AddTenantMemberHandler.EnsureCanManageMembers(tenant, actorId);
