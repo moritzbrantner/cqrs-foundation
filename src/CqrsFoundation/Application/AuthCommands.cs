@@ -19,7 +19,7 @@ public static class RegisterUserHandler
         IDocumentStore store,
         IPasswordHasher<Credential> passwordHasher,
         TokenService tokenService,
-        string correlationId,
+        CommandMetadata metadata,
         CancellationToken cancellationToken)
     {
         var email = NormalizeEmail(command.Email);
@@ -43,7 +43,7 @@ public static class RegisterUserHandler
         };
         credential.PasswordHash = passwordHasher.HashPassword(credential, command.Password);
 
-        AuditMetadata.Apply(session, userId, correlationId);
+        AuditMetadata.Apply(session, userId, metadata);
         session.Store(credential);
         session.Events.StartStream<UserAggregate>(userId, new UserRegistered(userId, email));
         try
