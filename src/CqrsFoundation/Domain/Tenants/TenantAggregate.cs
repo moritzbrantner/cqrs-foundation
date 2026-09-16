@@ -2,6 +2,16 @@ using CqrsFoundation.Domain.Common;
 
 namespace CqrsFoundation.Domain.Tenants;
 
+public static class TenantPermissions
+{
+    public const string TenantRead = "tenant.read";
+    public const string MembersRead = "members.read";
+    public const string MembersManage = "members.manage";
+    public const string CustomersRead = "customers.read";
+    public const string CustomersWrite = "customers.write";
+    public const string AuditRead = "audit.read";
+}
+
 public static class TenantRoles
 {
     public const string Owner = "owner";
@@ -17,6 +27,23 @@ public static class TenantRoles
             _ => throw new BusinessRuleException($"Unknown tenant role '{role}'.")
         };
     }
+
+    public static bool Grants(string role, string permission) => Normalize(role) switch
+    {
+        Owner or Admin => permission is
+            TenantPermissions.TenantRead or
+            TenantPermissions.MembersRead or
+            TenantPermissions.MembersManage or
+            TenantPermissions.CustomersRead or
+            TenantPermissions.CustomersWrite or
+            TenantPermissions.AuditRead,
+        Member => permission is
+            TenantPermissions.TenantRead or
+            TenantPermissions.MembersRead or
+            TenantPermissions.CustomersRead or
+            TenantPermissions.AuditRead,
+        _ => false
+    };
 }
 
 public sealed record TenantCreated(Guid TenantId, string Name, Guid OwnerUserId);
