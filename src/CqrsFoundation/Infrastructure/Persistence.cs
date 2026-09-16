@@ -43,7 +43,10 @@ public static class Persistence
     }
 }
 
-public sealed record CommandMetadata(string CorrelationId, string CausationId);
+public sealed record CommandMetadata(
+    string CorrelationId,
+    string CausationId,
+    string? IdempotencyKey = null);
 
 public static class AuditMetadata
 {
