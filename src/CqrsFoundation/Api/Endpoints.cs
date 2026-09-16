@@ -1,6 +1,7 @@
 using CqrsFoundation.Application;
 using CqrsFoundation.Auth;
 using CqrsFoundation.Domain.Common;
+using CqrsFoundation.Infrastructure;
 using Marten;
 using Microsoft.AspNetCore.Identity;
 
@@ -16,6 +17,8 @@ public sealed record RenameCustomerRequest(string? Name);
 
 public static class Endpoints
 {
+    internal const string CorrelationIdHeader = "X-Correlation-Id";
+
     public static void MapFoundationEndpoints(this WebApplication app)
     {
         var api = app.MapGroup("/api");
@@ -55,7 +58,7 @@ public static class Endpoints
             store,
             passwordHasher,
             tokenService,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.Created("/api/users/me", result);
     }
@@ -97,7 +100,7 @@ public static class Endpoints
             new CreateTenant(RequireRequestString(request.Name, "name")),
             CurrentUser.Id(httpContext.User),
             store,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.Created("/api/tenants/current", new { tenantId });
     }
@@ -135,7 +138,7 @@ public static class Endpoints
                 RequireRequestString(request.Role, "role")),
             CurrentUser.Id(httpContext.User),
             store,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.NoContent();
     }
@@ -155,7 +158,7 @@ public static class Endpoints
                 RequireRequestString(request.Role, "role")),
             CurrentUser.Id(httpContext.User),
             store,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.NoContent();
     }
@@ -171,7 +174,7 @@ public static class Endpoints
             new RemoveTenantMember(tenant.TenantId, userId),
             CurrentUser.Id(httpContext.User),
             store,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.NoContent();
     }
@@ -199,7 +202,7 @@ public static class Endpoints
                 RequireRequestString(request.Name, "name")),
             CurrentUser.Id(httpContext.User),
             store,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.Created($"/api/customers/{customerId}", new { customerId });
     }
@@ -230,7 +233,7 @@ public static class Endpoints
                 RequireRequestString(request.Name, "name")),
             CurrentUser.Id(httpContext.User),
             store,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.NoContent();
     }
@@ -247,7 +250,7 @@ public static class Endpoints
             new DeactivateCustomer(tenant.TenantId, customerId),
             CurrentUser.Id(httpContext.User),
             store,
-            httpContext.TraceIdentifier,
+            CommandMetadataFor(httpContext),
             cancellationToken);
         return Results.NoContent();
     }
@@ -269,6 +272,17 @@ public static class Endpoints
     private static TenantContext RequireTenant(HttpContext context) =>
         TenantContext.From(context)
         ?? throw new BadHttpRequestException("X-Tenant-Id header is required for tenant-scoped endpoints.");
+
+    internal static CommandMetadata CommandMetadataFor(HttpContext context)
+    {
+        var requestedCorrelationId = context.Request.Headers[CorrelationIdHeader].FirstOrDefault()?.Trim();
+        var correlationId = string.IsNullOrWhiteSpace(requestedCorrelationId)
+            ? context.TraceIdentifier
+            : requestedCorrelationId;
+        var metadata = new CommandMetadata(correlationId, context.TraceIdentifier);
+        context.Response.Headers[CorrelationIdHeader] = correlationId;
+        return metadata;
+    }
 
     internal static string RequireRequestString(string? value, string fieldName) =>
         value ?? throw new BadHttpRequestException($"The '{fieldName}' field is required.");
