@@ -41,4 +41,15 @@ public sealed class DomainTests
         Assert.ThrowsExactly<BusinessRuleException>(() => tenant.RemoveMember(ownerId));
         Assert.ThrowsExactly<BusinessRuleException>(() => tenant.ChangeRole(ownerId, TenantRoles.Member));
     }
+
+    [TestMethod]
+    public void Tenant_roles_bundle_permissions_without_being_the_authorization_primitive()
+    {
+        Assert.IsTrue(TenantRoles.Grants(TenantRoles.Owner, TenantPermissions.CustomersWrite));
+        Assert.IsTrue(TenantRoles.Grants(TenantRoles.Admin, TenantPermissions.MembersManage));
+        Assert.IsTrue(TenantRoles.Grants(TenantRoles.Member, TenantPermissions.CustomersRead));
+        Assert.IsTrue(TenantRoles.Grants(TenantRoles.Member, TenantPermissions.AuditRead));
+        Assert.IsFalse(TenantRoles.Grants(TenantRoles.Member, TenantPermissions.CustomersWrite));
+        Assert.IsFalse(TenantRoles.Grants(TenantRoles.Member, TenantPermissions.MembersManage));
+    }
 }

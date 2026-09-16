@@ -1,5 +1,6 @@
 using CqrsFoundation.Domain.Common;
 using CqrsFoundation.Domain.Customers;
+using CqrsFoundation.Domain.Tenants;
 using CqrsFoundation.Infrastructure;
 using Marten;
 
@@ -29,6 +30,13 @@ public static class CreateCustomerHandler
         var tenancyId = SystemTenancy.For(command.TenantId);
         var fingerprint = CommandIdempotency.Fingerprint(Operation, name);
         await using var session = store.LightweightSession(tenancyId);
+        await TenantAuthorization.RequireCommandPermission(
+            session,
+            command.TenantId,
+            actorId,
+            TenantPermissions.CustomersWrite,
+            cancellationToken);
+
         var existing = await CommandIdempotency.LoadExisting(
             session,
             actorId,
@@ -95,6 +103,13 @@ public static class RenameCustomerHandler
             command.CustomerId.ToString("D"),
             name);
         await using var session = store.LightweightSession(tenancyId);
+        await TenantAuthorization.RequireCommandPermission(
+            session,
+            command.TenantId,
+            actorId,
+            TenantPermissions.CustomersWrite,
+            cancellationToken);
+
         if (await CommandIdempotency.LoadExisting(
                 session,
                 actorId,
@@ -162,6 +177,13 @@ public static class DeactivateCustomerHandler
             Operation,
             command.CustomerId.ToString("D"));
         await using var session = store.LightweightSession(tenancyId);
+        await TenantAuthorization.RequireCommandPermission(
+            session,
+            command.TenantId,
+            actorId,
+            TenantPermissions.CustomersWrite,
+            cancellationToken);
+
         if (await CommandIdempotency.LoadExisting(
                 session,
                 actorId,

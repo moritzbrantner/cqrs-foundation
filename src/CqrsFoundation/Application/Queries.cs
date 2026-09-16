@@ -33,12 +33,33 @@ public static class TenantQueries
 {
     public static async Task<TenantView> GetCurrent(
         Guid tenantId,
+        Guid actorId,
         IDocumentStore store,
         CancellationToken cancellationToken)
     {
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        return await query.LoadAsync<TenantView>(tenantId, cancellationToken)
-            ?? throw new KeyNotFoundException("Tenant not found.");
+        return await TenantAuthorization.RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            TenantPermissions.TenantRead,
+            cancellationToken);
+    }
+
+    public static async Task<IReadOnlyDictionary<Guid, string>> ListMembers(
+        Guid tenantId,
+        Guid actorId,
+        IDocumentStore store,
+        CancellationToken cancellationToken)
+    {
+        await using var query = store.QuerySession(SystemTenancy.For(tenantId));
+        var tenant = await TenantAuthorization.RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            TenantPermissions.MembersRead,
+            cancellationToken);
+        return tenant.Members;
     }
 }
 
@@ -46,10 +67,17 @@ public static class CustomerQueries
 {
     public static async Task<IReadOnlyList<CustomerView>> List(
         Guid tenantId,
+        Guid actorId,
         IDocumentStore store,
         CancellationToken cancellationToken)
     {
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
+        await TenantAuthorization.RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            TenantPermissions.CustomersRead,
+            cancellationToken);
         return await query.Query<CustomerView>()
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
@@ -57,22 +85,36 @@ public static class CustomerQueries
 
     public static async Task<CustomerView> Get(
         Guid tenantId,
+        Guid actorId,
         Guid customerId,
         IDocumentStore store,
         CancellationToken cancellationToken)
     {
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
+        await TenantAuthorization.RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            TenantPermissions.CustomersRead,
+            cancellationToken);
         return await query.LoadAsync<CustomerView>(customerId, cancellationToken)
             ?? throw new KeyNotFoundException("Customer not found.");
     }
 
     public static async Task<IReadOnlyList<EventHistoryItem>> History(
         Guid tenantId,
+        Guid actorId,
         Guid customerId,
         IDocumentStore store,
         CancellationToken cancellationToken)
     {
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
+        await TenantAuthorization.RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            TenantPermissions.AuditRead,
+            cancellationToken);
         var events = await query.Events.FetchStreamAsync(customerId, token: cancellationToken);
         if (events.Count == 0)
         {
@@ -81,10 +123,10 @@ public static class CustomerQueries
 
         return events.Select(@event =>
         {
-            string? actorId = null;
+            string? actorIdHeader = null;
             if (@event.Headers is not null && @event.Headers.TryGetValue("actor_id", out var actor))
             {
-                actorId = actor?.ToString();
+                actorIdHeader = actor?.ToString();
             }
 
             return new EventHistoryItem(
@@ -92,7 +134,7 @@ public static class CustomerQueries
                 @event.Version,
                 @event.Timestamp,
                 @event.Data.GetType().Name,
-                actorId,
+                actorIdHeader,
                 @event.CorrelationId,
                 @event.CausationId,
                 @event.Data);

@@ -7,9 +7,12 @@ This repository is deliberately small. Preserve the architectural boundaries ins
 - Commands may load the current event-sourced aggregate and append events.
 - Existing streams must use Marten `FetchForWriting<T>()` so optimistic concurrency remains explicit.
 - Domain decisions return events. Do not mutate the aggregate returned by `FetchForWriting<T>()`.
+- Application handlers are the authoritative authorization boundary. Middleware/endpoints may reject early, but direct handler invocation must remain safe.
+- Authorization checks named permissions. Roles only bundle permissions; do not branch command behavior directly on role names.
 - Apply actor, correlation, and causation metadata to every write session.
 - Preserve an incoming `X-Correlation-Id` across related HTTP commands; use the individual request trace identifier as causation.
 - `Idempotency-Key` is optional. When present, store the command receipt in the same Marten transaction as the command's events/documents.
+- Check the actor's current permission before replaying an idempotency receipt. A receipt is never an authorization capability.
 - Scope receipts by tenant and actor. A matching key may replay only the same versioned command fingerprint; changed command input must fail closed.
 - Resource-creating commands may derive a stable resource id only when an idempotency key is present so concurrent retries converge on the same identity.
 - Keep versioned idempotency operation names stable. If the fingerprint semantics change incompatibly, increment the operation version.
@@ -18,13 +21,14 @@ This repository is deliberately small. Preserve the architectural boundaries ins
 ## Queries
 
 - Queries read projections or event history only.
+- Query handlers authoritatively check the actor's named read permission before returning tenant data.
 - Query handlers never append events or call command handlers.
 - Do not load write aggregates merely to shape API responses.
 
 ## Tenancy
 
 - Every tenant-owned stream or projection must use a tenant-scoped Marten session.
-- `X-Tenant-Id` is the HTTP tenant selector for the MVP; authorization must still verify membership server-side.
+- `X-Tenant-Id` is the HTTP tenant selector for the MVP; authorization must still verify membership and permission server-side.
 - Global authentication credentials are the intentional exception and remain single-tenanted documents.
 
 ## Simplicity
