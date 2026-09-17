@@ -18,7 +18,7 @@ public sealed record ChangeTenantMemberRoleRequest(string? Role);
 public sealed record QueryCustomersRequest(
     string? NamePrefix,
     bool? IsActive,
-    int? Offset,
+    string? Cursor,
     int? Limit);
 public sealed record CreateCustomerRequest(string? Name);
 public sealed record RenameCustomerRequest(string? Name);
@@ -230,7 +230,7 @@ public static class Endpoints
             new CustomerListQuery(
                 request.NamePrefix,
                 request.IsActive,
-                request.Offset ?? 0,
+                request.Cursor,
                 request.Limit ?? CustomerListQuery.DefaultLimit),
             store,
             cancellationToken));
