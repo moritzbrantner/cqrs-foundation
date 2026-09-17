@@ -10,6 +10,7 @@ A small, opinionated .NET 10 foundation for business software using strict CQRS,
 - named tenant permissions with roles as permission bundles
 - handler-authoritative authorization for both commands and tenant queries
 - inline read projections separated from write aggregates
+- bounded `QUERY` collection endpoints with explicit filter/page contracts
 - Marten optimistic stream concurrency through `FetchForWriting<T>()`
 - strong ETags plus optional `If-Match` stream-version preconditions for stale-edit protection
 - updated ETags on successful mutable-resource writes, including idempotent replay
@@ -35,10 +36,10 @@ Command                       Query                        History query
 permission check           permission check              permission check
    |                            |                              |
    v                            v                              v
-version precondition       projection + version          Event stream
+version precondition       projection / bounded page     Event stream
    |                            |
    v                            v
-Aggregate/decider          response + ETag
+Aggregate/decider          response (+ ETag for resource)
    |
    v
 Events
@@ -48,7 +49,7 @@ Events
    +----------------------> mutation result + next ETag
 ```
 
-Commands and queries are separated in `Application/`. Commands append events; queries only read projections/history. Tenant permissions are checked inside handlers, so middleware and endpoint checks are only fast-fail optimizations. See [`docs/architecture.md`](docs/architecture.md), [`docs/client-concurrency.md`](docs/client-concurrency.md), and [`AGENTS.md`](AGENTS.md) for the rules.
+Commands and queries are separated in `Application/`. Commands append events; queries only read projections/history. Tenant permissions are checked inside handlers, so middleware and endpoint checks are only fast-fail optimizations. See [`docs/architecture.md`](docs/architecture.md), [`docs/client-concurrency.md`](docs/client-concurrency.md), [`docs/querying.md`](docs/querying.md), and [`AGENTS.md`](AGENTS.md) for the rules.
 
 ## Run locally
 
@@ -87,6 +88,18 @@ For tenant-scoped requests add the returned tenant id:
 Authorization: Bearer <token>
 X-Tenant-Id: <tenant-guid>
 ```
+
+Query customer collections with a bounded `QUERY` request rather than an unbounded GET:
+
+```bash
+curl -X QUERY http://localhost:5000/api/customers \
+  -H 'authorization: Bearer <token>' \
+  -H 'X-Tenant-Id: <tenant-guid>' \
+  -H 'content-type: application/json' \
+  -d '{"namePrefix":"Ac","isActive":true,"offset":0,"limit":25}'
+```
+
+The customer page defaults to 25 rows, has a hard maximum of 100, is ordered by name and id, and returns `nextOffset` only when another page exists. It intentionally does not calculate a total count by default.
 
 Single mutable-resource reads such as `GET /api/customers/{id}` and tenant/member reads return a strong ETag containing the event-stream version:
 
