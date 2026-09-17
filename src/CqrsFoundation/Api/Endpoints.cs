@@ -107,7 +107,6 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
-        SetEntityTag(httpContext, 1);
         return Results.Created("/api/tenants/current", new { tenantId });
     }
 
@@ -236,7 +235,6 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
-        SetEntityTag(httpContext, 1);
         return Results.Created($"/api/customers/{customerId}", new { customerId });
     }
 
