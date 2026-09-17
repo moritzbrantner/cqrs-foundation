@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using CqrsFoundation.Domain.Common;
 using CqrsFoundation.Domain.Customers;
