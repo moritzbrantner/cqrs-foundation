@@ -12,19 +12,46 @@ namespace CqrsFoundation.Tests;
 public sealed class QueryTests
 {
     [TestMethod]
-    public void Customer_query_normalizes_prefix_and_rejects_unbounded_shapes()
+    public void Customer_query_normalizes_inputs_and_rejects_unbounded_shapes()
     {
-        var normalized = new CustomerListQuery("  Al ", true, 3, 10).ValidateAndNormalize();
+        var normalized = new CustomerListQuery("  Al ", true, "  cursor-token  ", 10)
+            .ValidateAndNormalize();
 
         Assert.AreEqual("Al", normalized.NamePrefix);
-        Assert.AreEqual(3, normalized.Offset);
+        Assert.AreEqual("cursor-token", normalized.Cursor);
         Assert.AreEqual(10, normalized.Limit);
-        Assert.ThrowsExactly<InvalidQueryException>(
-            () => new CustomerListQuery(Offset: -1).ValidateAndNormalize());
+        Assert.IsNull(new CustomerListQuery(Cursor: "   ").ValidateAndNormalize().Cursor);
         Assert.ThrowsExactly<InvalidQueryException>(
             () => new CustomerListQuery(Limit: 0).ValidateAndNormalize());
         Assert.ThrowsExactly<InvalidQueryException>(
             () => new CustomerListQuery(Limit: CustomerListQuery.MaxLimit + 1).ValidateAndNormalize());
+    }
+
+    [TestMethod]
+    public void Customer_cursor_is_bound_to_tenant_and_filter_shape()
+    {
+        var tenantId = Guid.NewGuid();
+        var query = new CustomerListQuery(" Al ", true, Limit: 10).ValidateAndNormalize();
+        var cursor = CustomerQueryCursor.Encode(
+            tenantId,
+            query,
+            new CustomerView(Guid.NewGuid(), "Alpha", true));
+
+        var decoded = CustomerQueryCursor.Decode(cursor, tenantId, query);
+        Assert.AreEqual("Alpha", decoded.Name);
+
+        Assert.ThrowsExactly<InvalidQueryException>(() =>
+            CustomerQueryCursor.Decode(
+                cursor,
+                Guid.NewGuid(),
+                query));
+        Assert.ThrowsExactly<InvalidQueryException>(() =>
+            CustomerQueryCursor.Decode(
+                cursor,
+                tenantId,
+                query with { IsActive = false }));
+        Assert.ThrowsExactly<InvalidQueryException>(() =>
+            CustomerQueryCursor.Decode("not-a-cursor", tenantId, query));
     }
 
     [TestMethod]
@@ -56,24 +83,24 @@ public sealed class QueryTests
         var first = await CustomerQueries.List(
             tenantId,
             actorId,
-            new CustomerListQuery(" Al ", true, 0, 1),
+            new CustomerListQuery(" Al ", true, Limit: 1),
             store,
             CancellationToken.None);
 
         Assert.HasCount(1, first.Items);
         Assert.AreEqual(alpha1, first.Items[0].Id);
-        Assert.AreEqual(1, first.NextOffset);
+        Assert.IsNotNull(first.NextCursor);
 
         var second = await CustomerQueries.List(
             tenantId,
             actorId,
-            new CustomerListQuery("Al", true, first.NextOffset!.Value, 1),
+            new CustomerListQuery("Al", true, first.NextCursor, 1),
             store,
             CancellationToken.None);
 
         Assert.HasCount(1, second.Items);
         Assert.AreEqual(alpha2, second.Items[0].Id);
-        Assert.IsNull(second.NextOffset);
+        Assert.IsNull(second.NextCursor);
 
         var inactive = await CustomerQueries.List(
             tenantId,
@@ -85,7 +112,54 @@ public sealed class QueryTests
         CollectionAssert.AreEqual(
             new[] { alpine, gamma },
             inactive.Items.Select(x => x.Id).ToArray());
-        Assert.IsNull(inactive.NextOffset);
+        Assert.IsNull(inactive.NextCursor);
+    }
+
+    [TestMethod]
+    public async Task Keyset_cursor_does_not_shift_when_a_row_is_inserted_before_it()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("TEST_POSTGRES");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Assert.Inconclusive("TEST_POSTGRES is not configured.");
+            return;
+        }
+
+        using var store = DocumentStore.For(options => Persistence.Configure(options, connectionString));
+        var tenantId = Guid.NewGuid();
+        var actorId = Guid.NewGuid();
+        var beta = Guid.NewGuid();
+        var charlie = Guid.NewGuid();
+        var delta = Guid.NewGuid();
+        await SeedTenant(store, tenantId, actorId);
+        await SeedCustomer(store, tenantId, beta, "Beta", true);
+        await SeedCustomer(store, tenantId, charlie, "Charlie", true);
+        await SeedCustomer(store, tenantId, delta, "Delta", true);
+
+        var first = await CustomerQueries.List(
+            tenantId,
+            actorId,
+            new CustomerListQuery(Limit: 2),
+            store,
+            CancellationToken.None);
+        CollectionAssert.AreEqual(
+            new[] { beta, charlie },
+            first.Items.Select(x => x.Id).ToArray());
+        Assert.IsNotNull(first.NextCursor);
+
+        await SeedCustomer(store, tenantId, Guid.NewGuid(), "Alpha", true);
+
+        var second = await CustomerQueries.List(
+            tenantId,
+            actorId,
+            new CustomerListQuery(Cursor: first.NextCursor, Limit: 2),
+            store,
+            CancellationToken.None);
+
+        CollectionAssert.AreEqual(
+            new[] { delta },
+            second.Items.Select(x => x.Id).ToArray());
+        Assert.IsNull(second.NextCursor);
     }
 
     [TestMethod]
@@ -120,7 +194,7 @@ public sealed class QueryTests
             CancellationToken.None);
 
         Assert.HasCount(CustomerListQuery.DefaultLimit, page.Items);
-        Assert.AreEqual(CustomerListQuery.DefaultLimit, page.NextOffset);
+        Assert.IsNotNull(page.NextCursor);
     }
 
     private static async Task SeedTenant(
