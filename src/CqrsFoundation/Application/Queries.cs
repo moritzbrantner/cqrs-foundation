@@ -12,7 +12,7 @@ public sealed record VersionedResource<T>(T Value, long Version);
 public sealed record CustomerListQuery(
     string? NamePrefix = null,
     bool? IsActive = null,
-    int Offset = 0,
+    string? Cursor = null,
     int Limit = 25)
 {
     public const int DefaultLimit = 25;
@@ -20,11 +20,6 @@ public sealed record CustomerListQuery(
 
     public CustomerListQuery ValidateAndNormalize()
     {
-        if (Offset < 0)
-        {
-            throw new InvalidQueryException("Customer query offset cannot be negative.");
-        }
-
         if (Limit is < 1 or > MaxLimit)
         {
             throw new InvalidQueryException(
@@ -32,16 +27,18 @@ public sealed record CustomerListQuery(
         }
 
         var prefix = NamePrefix?.Trim();
+        var cursor = Cursor?.Trim();
         return this with
         {
-            NamePrefix = string.IsNullOrEmpty(prefix) ? null : prefix
+            NamePrefix = string.IsNullOrEmpty(prefix) ? null : prefix,
+            Cursor = string.IsNullOrEmpty(cursor) ? null : cursor
         };
     }
 }
 
 public sealed record CustomerQueryPage(
     IReadOnlyList<CustomerView> Items,
-    int? NextOffset);
+    string? NextCursor);
 
 public sealed record EventHistoryItem(
     Guid EventId,
@@ -159,18 +156,28 @@ public static class CustomerQueries
             customers = customers.Where(x => x.IsActive == normalized.IsActive.Value);
         }
 
+        if (normalized.Cursor is not null)
+        {
+            var cursor = CustomerQueryCursor.Decode(normalized.Cursor, tenantId, normalized);
+            var cursorName = cursor.Name;
+            var cursorId = cursor.Id;
+            customers = customers.Where(x =>
+                x.Name.CompareTo(cursorName) > 0 ||
+                (x.Name == cursorName && x.Id.CompareTo(cursorId) > 0));
+        }
+
         var rows = await customers
             .OrderBy(x => x.Name)
             .ThenBy(x => x.Id)
-            .Skip(normalized.Offset)
             .Take(normalized.Limit + 1)
             .ToListAsync(cancellationToken);
 
         var hasMore = rows.Count > normalized.Limit;
         var items = rows.Take(normalized.Limit).ToArray();
-        return new CustomerQueryPage(
-            items,
-            hasMore ? normalized.Offset + normalized.Limit : null);
+        var nextCursor = hasMore
+            ? CustomerQueryCursor.Encode(tenantId, normalized, items[^1])
+            : null;
+        return new CustomerQueryPage(items, nextCursor);
     }
 
     public static async Task<VersionedResource<CustomerView>> Get(
