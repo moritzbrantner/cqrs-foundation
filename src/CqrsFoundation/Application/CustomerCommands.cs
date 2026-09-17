@@ -14,8 +14,9 @@ public sealed record DeactivateCustomer(Guid TenantId, Guid CustomerId, long? Ex
 public static class CreateCustomerHandler
 {
     private const string Operation = "customers.create.v1";
+    private const long CreatedVersion = 1;
 
-    public static async Task<Guid> Handle(
+    public static async Task<CreatedResource> Handle(
         CreateCustomer command,
         Guid actorId,
         IDocumentStore store,
@@ -47,7 +48,9 @@ public static class CreateCustomerHandler
         if (existing is not null)
         {
             await session.SaveChangesAsync(cancellationToken);
-            return CommandIdempotency.RequireResourceId(existing);
+            return new CreatedResource(
+                CommandIdempotency.RequireResourceId(existing),
+                CommandIdempotency.RequireResultVersion(existing));
         }
 
         var customerId = CommandIdempotency.NewResourceId(actorId, Operation, metadata);
@@ -55,7 +58,13 @@ public static class CreateCustomerHandler
         session.Events.StartStream<CustomerAggregate>(
             customerId,
             new CustomerCreated(customerId, name));
-        CommandIdempotency.Stage(session, actorId, metadata, fingerprint, customerId);
+        CommandIdempotency.Stage(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            customerId,
+            CreatedVersion);
 
         try
         {
@@ -78,13 +87,15 @@ public static class CreateCustomerHandler
                     actorId,
                     TenantPermissions.CustomersWrite,
                     cancellationToken);
-                return CommandIdempotency.RequireResourceId(recovered);
+                return new CreatedResource(
+                    CommandIdempotency.RequireResourceId(recovered),
+                    CommandIdempotency.RequireResultVersion(recovered));
             }
 
             throw;
         }
 
-        return customerId;
+        return new CreatedResource(customerId, CreatedVersion);
     }
 }
 
@@ -92,7 +103,7 @@ public static class RenameCustomerHandler
 {
     private const string Operation = "customers.rename.v2";
 
-    public static async Task Handle(
+    public static async Task<MutationResult> Handle(
         RenameCustomer command,
         Guid actorId,
         IDocumentStore store,
@@ -119,15 +130,16 @@ public static class RenameCustomerHandler
             TenantPermissions.CustomersWrite,
             cancellationToken);
 
-        if (await CommandIdempotency.LoadExisting(
-                session,
-                actorId,
-                metadata,
-                fingerprint,
-                cancellationToken) is not null)
+        var existing = await CommandIdempotency.LoadExisting(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            cancellationToken);
+        if (existing is not null)
         {
             await session.SaveChangesAsync(cancellationToken);
-            return;
+            return new MutationResult(CommandIdempotency.RequireResultVersion(existing));
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
@@ -142,11 +154,6 @@ public static class RenameCustomerHandler
             cancellationToken);
 
         var events = customer.Rename(name);
-        if (events.Count == 0 && metadata.IdempotencyKey is null && command.ExpectedVersion is null)
-        {
-            return;
-        }
-
         if (events.Count == 0)
         {
             stream.AlwaysEnforceConsistency = true;
@@ -156,20 +163,28 @@ public static class RenameCustomerHandler
             stream.AppendMany(events);
         }
 
-        CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
+        var resultVersion = stream.CurrentVersion
+            ?? throw new InvalidOperationException("The customer stream version is unavailable.");
+        CommandIdempotency.Stage(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            resultVersion: resultVersion);
         try
         {
             await session.SaveChangesAsync(cancellationToken);
         }
         catch (Exception)
         {
-            if (await CommandIdempotency.RecoverCommitted(
-                    store,
-                    tenancyId,
-                    actorId,
-                    metadata,
-                    fingerprint,
-                    cancellationToken) is not null)
+            var recovered = await CommandIdempotency.RecoverCommitted(
+                store,
+                tenancyId,
+                actorId,
+                metadata,
+                fingerprint,
+                cancellationToken);
+            if (recovered is not null)
             {
                 await TenantAuthorization.RequireCurrentPermission(
                     store,
@@ -177,11 +192,13 @@ public static class RenameCustomerHandler
                     actorId,
                     TenantPermissions.CustomersWrite,
                     cancellationToken);
-                return;
+                return new MutationResult(CommandIdempotency.RequireResultVersion(recovered));
             }
 
             throw;
         }
+
+        return new MutationResult(resultVersion);
     }
 
     private static string VersionPart(long? version) =>
@@ -192,7 +209,7 @@ public static class DeactivateCustomerHandler
 {
     private const string Operation = "customers.deactivate.v2";
 
-    public static async Task Handle(
+    public static async Task<MutationResult> Handle(
         DeactivateCustomer command,
         Guid actorId,
         IDocumentStore store,
@@ -212,15 +229,16 @@ public static class DeactivateCustomerHandler
             TenantPermissions.CustomersWrite,
             cancellationToken);
 
-        if (await CommandIdempotency.LoadExisting(
-                session,
-                actorId,
-                metadata,
-                fingerprint,
-                cancellationToken) is not null)
+        var existing = await CommandIdempotency.LoadExisting(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            cancellationToken);
+        if (existing is not null)
         {
             await session.SaveChangesAsync(cancellationToken);
-            return;
+            return new MutationResult(CommandIdempotency.RequireResultVersion(existing));
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
@@ -235,11 +253,6 @@ public static class DeactivateCustomerHandler
             cancellationToken);
 
         var events = customer.Deactivate();
-        if (events.Count == 0 && metadata.IdempotencyKey is null && command.ExpectedVersion is null)
-        {
-            return;
-        }
-
         if (events.Count == 0)
         {
             stream.AlwaysEnforceConsistency = true;
@@ -249,20 +262,28 @@ public static class DeactivateCustomerHandler
             stream.AppendMany(events);
         }
 
-        CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
+        var resultVersion = stream.CurrentVersion
+            ?? throw new InvalidOperationException("The customer stream version is unavailable.");
+        CommandIdempotency.Stage(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            resultVersion: resultVersion);
         try
         {
             await session.SaveChangesAsync(cancellationToken);
         }
         catch (Exception)
         {
-            if (await CommandIdempotency.RecoverCommitted(
-                    store,
-                    tenancyId,
-                    actorId,
-                    metadata,
-                    fingerprint,
-                    cancellationToken) is not null)
+            var recovered = await CommandIdempotency.RecoverCommitted(
+                store,
+                tenancyId,
+                actorId,
+                metadata,
+                fingerprint,
+                cancellationToken);
+            if (recovered is not null)
             {
                 await TenantAuthorization.RequireCurrentPermission(
                     store,
@@ -270,10 +291,12 @@ public static class DeactivateCustomerHandler
                     actorId,
                     TenantPermissions.CustomersWrite,
                     cancellationToken);
-                return;
+                return new MutationResult(CommandIdempotency.RequireResultVersion(recovered));
             }
 
             throw;
         }
+
+        return new MutationResult(resultVersion);
     }
 }

@@ -10,14 +10,16 @@ This repository is deliberately small. Preserve the architectural boundaries ins
 - Application handlers are the authoritative authorization boundary. Middleware/endpoints may reject early, but direct handler invocation must remain safe.
 - Authorization checks named permissions. Roles only bundle permissions; do not branch command behavior directly on role names.
 - Mutable resource reads expose the current event-stream version. Existing-resource writes may carry an expected version from HTTP `If-Match`; reject stale expected versions before applying domain events.
+- Successful mutable-resource commands return the stream version produced by that command so HTTP can emit the next strong ETag without an extra read.
 - Keep Marten's normal optimistic concurrency check even when a client expected version is supplied. The client precondition does not replace commit-time concurrency protection.
-- A no-op command with an expected version must still assert stream consistency before succeeding.
+- A no-op command that returns a resource version must still assert stream consistency before succeeding.
 - Apply actor, correlation, and causation metadata to every write session.
 - Preserve an incoming `X-Correlation-Id` across related HTTP commands; use the individual request trace identifier as causation.
 - `Idempotency-Key` is optional. When present, store the command receipt in the same Marten transaction as the command's events/documents.
 - Check the actor's current permission before replaying an idempotency receipt. A receipt is never an authorization capability.
 - Scope receipts by tenant and actor. A matching key may replay only the same versioned command fingerprint; changed command input must fail closed.
 - Include an expected resource version in an idempotency fingerprint when the command uses one. A committed receipt replays before re-evaluating its now-stale expected version.
+- Store the original command result version in the receipt. A later replay must return that original version, not the resource's newer current version.
 - Resource-creating commands may derive a stable resource id only when an idempotency key is present so concurrent retries converge on the same identity.
 - Keep versioned idempotency operation names stable. If the fingerprint semantics change incompatibly, increment the operation version.
 - Never put passwords, hashes, MFA secrets, access tokens, refresh tokens, or other authentication secrets into immutable events or idempotency receipts.
