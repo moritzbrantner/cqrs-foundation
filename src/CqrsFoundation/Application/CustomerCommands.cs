@@ -46,6 +46,7 @@ public static class CreateCustomerHandler
             cancellationToken);
         if (existing is not null)
         {
+            await session.SaveChangesAsync(cancellationToken);
             return CommandIdempotency.RequireResourceId(existing);
         }
 
@@ -71,6 +72,12 @@ public static class CreateCustomerHandler
                 cancellationToken);
             if (recovered is not null)
             {
+                await TenantAuthorization.RequireCurrentPermission(
+                    store,
+                    command.TenantId,
+                    actorId,
+                    TenantPermissions.CustomersWrite,
+                    cancellationToken);
                 return CommandIdempotency.RequireResourceId(recovered);
             }
 
@@ -119,6 +126,7 @@ public static class RenameCustomerHandler
                 fingerprint,
                 cancellationToken) is not null)
         {
+            await session.SaveChangesAsync(cancellationToken);
             return;
         }
 
@@ -163,6 +171,12 @@ public static class RenameCustomerHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
+                await TenantAuthorization.RequireCurrentPermission(
+                    store,
+                    command.TenantId,
+                    actorId,
+                    TenantPermissions.CustomersWrite,
+                    cancellationToken);
                 return;
             }
 
@@ -205,6 +219,7 @@ public static class DeactivateCustomerHandler
                 fingerprint,
                 cancellationToken) is not null)
         {
+            await session.SaveChangesAsync(cancellationToken);
             return;
         }
 
@@ -249,6 +264,12 @@ public static class DeactivateCustomerHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
+                await TenantAuthorization.RequireCurrentPermission(
+                    store,
+                    command.TenantId,
+                    actorId,
+                    TenantPermissions.CustomersWrite,
+                    cancellationToken);
                 return;
             }
 
