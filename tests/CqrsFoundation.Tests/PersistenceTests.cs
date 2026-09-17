@@ -179,9 +179,11 @@ public sealed class PersistenceTests
             new CommandMetadata("tenant-retry", "tenant-retry-request", key),
             CancellationToken.None);
 
-        Assert.AreEqual(first, retry);
-        await using var query = store.QuerySession(SystemTenancy.For(first));
-        Assert.HasCount(1, await query.Events.FetchStreamAsync(first));
+        Assert.AreEqual(first.ResourceId, retry.ResourceId);
+        Assert.AreEqual(first.Version, retry.Version);
+        Assert.AreEqual(1L, first.Version);
+        await using var query = store.QuerySession(SystemTenancy.For(first.ResourceId));
+        Assert.HasCount(1, await query.Events.FetchStreamAsync(first.ResourceId));
     }
 
     [TestMethod]
@@ -213,11 +215,13 @@ public sealed class PersistenceTests
             store,
             new CommandMetadata("customer-retry", "customer-retry-request", key),
             CancellationToken.None);
-        var ids = await Task.WhenAll(first, retry);
+        var results = await Task.WhenAll(first, retry);
 
-        Assert.AreEqual(ids[0], ids[1]);
+        Assert.AreEqual(results[0].ResourceId, results[1].ResourceId);
+        Assert.AreEqual(1L, results[0].Version);
+        Assert.AreEqual(results[0].Version, results[1].Version);
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        Assert.HasCount(1, await query.Events.FetchStreamAsync(ids[0]));
+        Assert.HasCount(1, await query.Events.FetchStreamAsync(results[0].ResourceId));
     }
 
     [TestMethod]
@@ -237,7 +241,7 @@ public sealed class PersistenceTests
         var metadata = new CommandMetadata("reuse", "reuse-request", key);
         await SeedTenant(store, tenantId, actorId);
 
-        var customerId = await CreateCustomerHandler.Handle(
+        var created = await CreateCustomerHandler.Handle(
             new CreateCustomer(tenantId, "Original"),
             actorId,
             store,
@@ -260,7 +264,7 @@ public sealed class PersistenceTests
         }
 
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        Assert.HasCount(1, await query.Events.FetchStreamAsync(customerId));
+        Assert.HasCount(1, await query.Events.FetchStreamAsync(created.ResourceId));
     }
 
     [TestMethod]
@@ -280,7 +284,7 @@ public sealed class PersistenceTests
         var key = $"permission-replay-{Guid.NewGuid():N}";
         await SeedTenant(store, tenantId, ownerId, (adminId, TenantRoles.Admin));
 
-        var customerId = await CreateCustomerHandler.Handle(
+        var created = await CreateCustomerHandler.Handle(
             new CreateCustomer(tenantId, "Authorized once"),
             adminId,
             store,
@@ -303,7 +307,7 @@ public sealed class PersistenceTests
                 CancellationToken.None));
 
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        Assert.HasCount(1, await query.Events.FetchStreamAsync(customerId));
+        Assert.HasCount(1, await query.Events.FetchStreamAsync(created.ResourceId));
     }
 
     [TestMethod]
