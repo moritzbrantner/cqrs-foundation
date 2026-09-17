@@ -54,9 +54,11 @@ Without `Idempotency-Key`, command behavior and randomly generated resource iden
 
 Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates. Tenant query handlers authorize the actor before exposing the requested projection/history data. Single mutable-resource queries pair the projection with the canonical event-stream version so HTTP can emit an ETag without changing the JSON body shape.
 
-Collection queries are explicit and bounded. A collection that needs filtering or paging uses an HTTP `QUERY` operation with a request body; single resources and small fixed collections remain `GET`. The customer query normalizes its filters, enforces a default limit of 25 and a hard maximum of 100, orders by `Name` and then `Id` for deterministic tie-breaking, and fetches one extra row only to determine whether `nextOffset` should be returned. It deliberately does not calculate a total count by default.
+Collection queries are explicit and bounded. A collection that needs filtering or paging uses an HTTP `QUERY` operation with a request body; single resources and small fixed collections remain `GET`. The customer query normalizes its filters, enforces a default limit of 25 and a hard maximum of 100, orders by `Name` and then `Id` for deterministic tie-breaking, and fetches one extra row only to decide whether a continuation cursor exists. It deliberately does not calculate a total count by default.
 
-Offset paging is transparent but not snapshot isolation. Concurrent inserts, renames, or deletes may shift later pages. If a concrete workload requires stable continuation while the result set changes, the next upgrade is a keyset/continuation token rather than hidden snapshot infrastructure.
+Continuation is keyset-based rather than offset-based. The opaque cursor stores the last `Name + Id` tuple together with the tenant and normalized filters, so inserts or deletes before the cursor do not shift the next page and a cursor cannot silently be reused against another tenant/filter shape. The cursor is versioned so future ordering changes can fail closed instead of being interpreted under new semantics.
+
+Keyset continuation is not snapshot isolation because `Name` is mutable. A rename across the cursor boundary between requests can move a row from one side of the seek position to the other. Workloads that require snapshot-stable traversal need either an immutable ordering key or an explicit snapshot/read-version mechanism rather than additional hidden paging state.
 
 ## Audit path
 
