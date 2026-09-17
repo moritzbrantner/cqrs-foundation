@@ -163,7 +163,8 @@ public static class RenameCustomerHandler
             stream.AppendMany(events);
         }
 
-        var resultVersion = stream.CurrentVersion;
+        var resultVersion = stream.CurrentVersion
+            ?? throw new InvalidOperationException("The customer stream version is unavailable.");
         CommandIdempotency.Stage(
             session,
             actorId,
@@ -261,7 +262,8 @@ public static class DeactivateCustomerHandler
             stream.AppendMany(events);
         }
 
-        var resultVersion = stream.CurrentVersion;
+        var resultVersion = stream.CurrentVersion
+            ?? throw new InvalidOperationException("The customer stream version is unavailable.");
         CommandIdempotency.Stage(
             session,
             actorId,
