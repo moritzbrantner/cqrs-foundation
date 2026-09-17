@@ -1,3 +1,4 @@
+using System.Globalization;
 using CqrsFoundation.Application;
 using CqrsFoundation.Auth;
 using CqrsFoundation.Domain.Common;
@@ -20,6 +21,7 @@ public static class Endpoints
 {
     internal const string CorrelationIdHeader = "X-Correlation-Id";
     internal const string IdempotencyKeyHeader = "Idempotency-Key";
+    internal const string IfMatchHeader = "If-Match";
     internal const int MaxIdempotencyKeyLength = 128;
 
     public static void MapFoundationEndpoints(this WebApplication app)
@@ -105,6 +107,7 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
+        SetEntityTag(httpContext, 1);
         return Results.Created("/api/tenants/current", new { tenantId });
     }
 
@@ -115,11 +118,13 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.TenantRead);
-        return Results.Ok(await TenantQueries.GetCurrent(
+        var result = await TenantQueries.GetCurrent(
             tenant.TenantId,
             CurrentUser.Id(httpContext.User),
             store,
-            cancellationToken));
+            cancellationToken);
+        SetEntityTag(httpContext, result.Version);
+        return Results.Ok(result.Value);
     }
 
     private static async Task<IResult> GetTenantMembers(
@@ -129,11 +134,13 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.MembersRead);
-        return Results.Ok(await TenantQueries.ListMembers(
+        var result = await TenantQueries.ListMembers(
             tenant.TenantId,
             CurrentUser.Id(httpContext.User),
             store,
-            cancellationToken));
+            cancellationToken);
+        SetEntityTag(httpContext, result.Version);
+        return Results.Ok(result.Value);
     }
 
     private static async Task<IResult> AddTenantMember(
@@ -148,7 +155,8 @@ public static class Endpoints
             new AddTenantMember(
                 tenant.TenantId,
                 request.UserId,
-                RequireRequestString(request.Role, "role")),
+                RequireRequestString(request.Role, "role"),
+                ExpectedVersionFor(httpContext)),
             CurrentUser.Id(httpContext.User),
             store,
             CommandMetadataFor(httpContext),
@@ -169,7 +177,8 @@ public static class Endpoints
             new ChangeTenantMemberRole(
                 tenant.TenantId,
                 userId,
-                RequireRequestString(request.Role, "role")),
+                RequireRequestString(request.Role, "role"),
+                ExpectedVersionFor(httpContext)),
             CurrentUser.Id(httpContext.User),
             store,
             CommandMetadataFor(httpContext),
@@ -186,7 +195,10 @@ public static class Endpoints
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.MembersManage);
         await RemoveTenantMemberHandler.Handle(
-            new RemoveTenantMember(tenant.TenantId, userId),
+            new RemoveTenantMember(
+                tenant.TenantId,
+                userId,
+                ExpectedVersionFor(httpContext)),
             CurrentUser.Id(httpContext.User),
             store,
             CommandMetadataFor(httpContext),
@@ -224,6 +236,7 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
+        SetEntityTag(httpContext, 1);
         return Results.Created($"/api/customers/{customerId}", new { customerId });
     }
 
@@ -235,12 +248,14 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.CustomersRead);
-        return Results.Ok(await CustomerQueries.Get(
+        var result = await CustomerQueries.Get(
             tenant.TenantId,
             CurrentUser.Id(httpContext.User),
             customerId,
             store,
-            cancellationToken));
+            cancellationToken);
+        SetEntityTag(httpContext, result.Version);
+        return Results.Ok(result.Value);
     }
 
     private static async Task<IResult> RenameCustomer(
@@ -256,7 +271,8 @@ public static class Endpoints
             new RenameCustomer(
                 tenant.TenantId,
                 customerId,
-                RequireRequestString(request.Name, "name")),
+                RequireRequestString(request.Name, "name"),
+                ExpectedVersionFor(httpContext)),
             CurrentUser.Id(httpContext.User),
             store,
             CommandMetadataFor(httpContext),
@@ -273,7 +289,10 @@ public static class Endpoints
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.CustomersWrite);
         await DeactivateCustomerHandler.Handle(
-            new DeactivateCustomer(tenant.TenantId, customerId),
+            new DeactivateCustomer(
+                tenant.TenantId,
+                customerId,
+                ExpectedVersionFor(httpContext)),
             CurrentUser.Id(httpContext.User),
             store,
             CommandMetadataFor(httpContext),
@@ -333,6 +352,41 @@ public static class Endpoints
         context.Response.Headers[CorrelationIdHeader] = correlationId;
         return metadata;
     }
+
+    internal static long? ExpectedVersionFor(HttpContext context)
+    {
+        if (!context.Request.Headers.TryGetValue(IfMatchHeader, out var values))
+        {
+            return null;
+        }
+
+        if (values.Count != 1)
+        {
+            throw new BadHttpRequestException($"The '{IfMatchHeader}' header must contain exactly one entity tag.");
+        }
+
+        var value = values[0]?.Trim();
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.StartsWith("W/", StringComparison.OrdinalIgnoreCase) ||
+            value.Length < 3 ||
+            value[0] != '"' ||
+            value[^1] != '"' ||
+            !long.TryParse(
+                value[1..^1],
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var version) ||
+            version < 1)
+        {
+            throw new BadHttpRequestException(
+                $"The '{IfMatchHeader}' header must be a single strong numeric ETag such as \"3\".");
+        }
+
+        return version;
+    }
+
+    internal static void SetEntityTag(HttpContext context, long version) =>
+        context.Response.Headers.ETag = $"\"{version.ToString(CultureInfo.InvariantCulture)}\"";
 
     internal static string RequireRequestString(string? value, string fieldName) =>
         value ?? throw new BadHttpRequestException($"The '{fieldName}' field is required.");
