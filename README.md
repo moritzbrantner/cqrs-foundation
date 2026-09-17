@@ -11,6 +11,7 @@ A small, opinionated .NET 10 foundation for business software using strict CQRS,
 - handler-authoritative authorization for both commands and tenant queries
 - inline read projections separated from write aggregates
 - Marten optimistic stream concurrency through `FetchForWriting<T>()`
+- strong ETags plus optional `If-Match` stream-version preconditions for stale-edit protection
 - conjoined tenant isolation
 - JWT bearer authentication with password hashing via ASP.NET Core Identity primitives
 - immutable event history with actor, correlation, causation, and tenant metadata
@@ -33,7 +34,10 @@ Command                       Query                        History query
 permission check           permission check              permission check
    |                            |                              |
    v                            v                              v
-Aggregate/decider          Read projection               Event stream
+version precondition       projection + version          Event stream
+   |                            |
+   v                            v
+Aggregate/decider          response + ETag
    |
    v
 Events
@@ -81,6 +85,20 @@ Authorization: Bearer <token>
 X-Tenant-Id: <tenant-guid>
 ```
 
+Single mutable-resource reads such as `GET /api/customers/{id}` and tenant/member reads return a strong ETag containing the event-stream version:
+
+```text
+ETag: "3"
+```
+
+Send that version back on an existing-resource write when the command must only apply to the state you read:
+
+```text
+If-Match: "3"
+```
+
+`If-Match` is optional; omitting it keeps the command unconditional. A stale supplied version is rejected with HTTP 412 without appending a business event, while Marten's normal commit-time optimistic concurrency remains active for races that occur after the precondition check.
+
 For a business operation that spans multiple commands, send the same correlation id on each write:
 
 ```text
@@ -95,7 +113,7 @@ For a command that may be retried after a timeout or lost response, send a stabl
 Idempotency-Key: <unique-command-key>
 ```
 
-The key is optional and scoped to the current tenant and actor. The same key with the same command returns the already committed outcome instead of appending another event; using it for different command input is rejected. The receipt is committed atomically with the business write. Current permission is checked before replay, so revoking access also prevents an old key from being reused as authority. Registration retries revalidate the password and issue a fresh access token rather than storing authentication secrets in the receipt.
+The key is optional and scoped to the current tenant and actor. The same key with the same command returns the already committed outcome instead of appending another event; using it for different command input is rejected. The receipt is committed atomically with the business write. Current permission is checked before replay, so revoking access also prevents an old key from being reused as authority. If a command used `If-Match`, that expected version is part of its idempotency fingerprint; a committed retry replays before rejecting the old version. Registration retries revalidate the password and issue a fresh access token rather than storing authentication secrets in the receipt.
 
 You can then manage tenant membership and roles, create/rename/deactivate customers, query customer projections, and inspect `/api/customers/{id}/history` independently of the current read model. History includes actor, correlation, and causation metadata for each event.
 

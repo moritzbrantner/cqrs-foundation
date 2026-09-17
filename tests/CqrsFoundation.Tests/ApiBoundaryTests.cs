@@ -56,6 +56,23 @@ public sealed class ApiBoundaryTests
     }
 
     [TestMethod]
+    public async Task Stale_resource_version_maps_to_precondition_failed()
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        await new ApiExceptionHandler().TryHandleAsync(
+            context,
+            new StaleResourceVersionException(2, 3),
+            CancellationToken.None);
+
+        Assert.AreEqual(StatusCodes.Status412PreconditionFailed, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(context.Response.Body);
+        Assert.AreEqual("Resource version precondition failed", problem?.Title);
+    }
+
+    [TestMethod]
     [DataRow("email")]
     [DataRow("password")]
     [DataRow("name")]
@@ -100,6 +117,47 @@ public sealed class ApiBoundaryTests
         Assert.AreEqual("request-456", metadata.CausationId);
         Assert.IsNull(metadata.IdempotencyKey);
         Assert.AreEqual("request-456", context.Response.Headers[Endpoints.CorrelationIdHeader].ToString());
+    }
+
+    [TestMethod]
+    public void Strong_numeric_if_match_is_parsed_as_expected_version()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers[Endpoints.IfMatchHeader] = "\"17\"";
+
+        Assert.AreEqual(17L, Endpoints.ExpectedVersionFor(context));
+    }
+
+    [TestMethod]
+    public void Missing_if_match_means_unconditional_command()
+    {
+        var context = new DefaultHttpContext();
+
+        Assert.IsNull(Endpoints.ExpectedVersionFor(context));
+    }
+
+    [TestMethod]
+    [DataRow("W/\"3\"")]
+    [DataRow("*")]
+    [DataRow("3")]
+    [DataRow("\"0\"")]
+    [DataRow("\"abc\"")]
+    public void Invalid_if_match_is_rejected(string value)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers[Endpoints.IfMatchHeader] = value;
+
+        Assert.ThrowsExactly<BadHttpRequestException>(() => Endpoints.ExpectedVersionFor(context));
+    }
+
+    [TestMethod]
+    public void Resource_version_is_emitted_as_strong_etag()
+    {
+        var context = new DefaultHttpContext();
+
+        Endpoints.SetEntityTag(context, 4);
+
+        Assert.AreEqual("\"4\"", context.Response.Headers.ETag.ToString());
     }
 
     [TestMethod]

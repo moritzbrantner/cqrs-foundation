@@ -1,5 +1,6 @@
 using CqrsFoundation.Domain.Common;
 using CqrsFoundation.Domain.Tenants;
+using CqrsFoundation.Infrastructure;
 using Marten;
 
 namespace CqrsFoundation.Application;
@@ -40,6 +41,22 @@ public static class TenantAuthorization
 
         EnsurePermission(tenant.Members, actorId, permission);
         return tenant;
+    }
+
+    public static async Task RequireCurrentPermission(
+        IDocumentStore store,
+        Guid tenantId,
+        Guid actorId,
+        string permission,
+        CancellationToken cancellationToken)
+    {
+        await using var query = store.QuerySession(SystemTenancy.For(tenantId));
+        await RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            permission,
+            cancellationToken);
     }
 
     public static void EnsurePermission(

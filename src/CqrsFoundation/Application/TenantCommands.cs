@@ -1,3 +1,4 @@
+using System.Globalization;
 using CqrsFoundation.Domain.Common;
 using CqrsFoundation.Domain.Tenants;
 using CqrsFoundation.Domain.Users;
@@ -7,9 +8,9 @@ using Marten;
 namespace CqrsFoundation.Application;
 
 public sealed record CreateTenant(string Name);
-public sealed record AddTenantMember(Guid TenantId, Guid UserId, string Role);
-public sealed record ChangeTenantMemberRole(Guid TenantId, Guid UserId, string Role);
-public sealed record RemoveTenantMember(Guid TenantId, Guid UserId);
+public sealed record AddTenantMember(Guid TenantId, Guid UserId, string Role, long? ExpectedVersion = null);
+public sealed record ChangeTenantMemberRole(Guid TenantId, Guid UserId, string Role, long? ExpectedVersion = null);
+public sealed record RemoveTenantMember(Guid TenantId, Guid UserId, long? ExpectedVersion = null);
 
 public static class CreateTenantHandler
 {
@@ -76,7 +77,7 @@ public static class CreateTenantHandler
 
 public static class AddTenantMemberHandler
 {
-    private const string Operation = "tenants.members.add.v1";
+    private const string Operation = "tenants.members.add.v2";
 
     public static async Task Handle(
         AddTenantMember command,
@@ -90,7 +91,8 @@ public static class AddTenantMemberHandler
         var fingerprint = CommandIdempotency.Fingerprint(
             Operation,
             command.UserId.ToString("D"),
-            role);
+            role,
+            VersionPart(command.ExpectedVersion));
         await using var session = store.LightweightSession(tenancyId);
         var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
         var tenant = stream.Aggregate
@@ -107,9 +109,16 @@ public static class AddTenantMemberHandler
                 fingerprint,
                 cancellationToken) is not null)
         {
+            stream.AlwaysEnforceConsistency = true;
+            await session.SaveChangesAsync(cancellationToken);
             return;
         }
 
+        await ConcurrencyPreconditions.EnsureExpectedVersion(
+            session,
+            command.TenantId,
+            command.ExpectedVersion,
+            cancellationToken);
         await EnsureUserExists(command.UserId, store, cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.AddMember(command.UserId, role));
@@ -129,6 +138,12 @@ public static class AddTenantMemberHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
+                await TenantAuthorization.RequireCurrentPermission(
+                    store,
+                    command.TenantId,
+                    actorId,
+                    TenantPermissions.MembersManage,
+                    cancellationToken);
                 return;
             }
 
@@ -144,11 +159,14 @@ public static class AddTenantMemberHandler
             throw new KeyNotFoundException("User not found.");
         }
     }
+
+    private static string VersionPart(long? version) =>
+        version?.ToString(CultureInfo.InvariantCulture) ?? "unconditional";
 }
 
 public static class ChangeTenantMemberRoleHandler
 {
-    private const string Operation = "tenants.members.change-role.v1";
+    private const string Operation = "tenants.members.change-role.v2";
 
     public static async Task Handle(
         ChangeTenantMemberRole command,
@@ -162,7 +180,8 @@ public static class ChangeTenantMemberRoleHandler
         var fingerprint = CommandIdempotency.Fingerprint(
             Operation,
             command.UserId.ToString("D"),
-            role);
+            role,
+            command.ExpectedVersion?.ToString(CultureInfo.InvariantCulture) ?? "unconditional");
         await using var session = store.LightweightSession(tenancyId);
         var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
         var tenant = stream.Aggregate
@@ -179,9 +198,16 @@ public static class ChangeTenantMemberRoleHandler
                 fingerprint,
                 cancellationToken) is not null)
         {
+            stream.AlwaysEnforceConsistency = true;
+            await session.SaveChangesAsync(cancellationToken);
             return;
         }
 
+        await ConcurrencyPreconditions.EnsureExpectedVersion(
+            session,
+            command.TenantId,
+            command.ExpectedVersion,
+            cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.ChangeRole(command.UserId, role));
         CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
@@ -200,6 +226,12 @@ public static class ChangeTenantMemberRoleHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
+                await TenantAuthorization.RequireCurrentPermission(
+                    store,
+                    command.TenantId,
+                    actorId,
+                    TenantPermissions.MembersManage,
+                    cancellationToken);
                 return;
             }
 
@@ -210,7 +242,7 @@ public static class ChangeTenantMemberRoleHandler
 
 public static class RemoveTenantMemberHandler
 {
-    private const string Operation = "tenants.members.remove.v1";
+    private const string Operation = "tenants.members.remove.v2";
 
     public static async Task Handle(
         RemoveTenantMember command,
@@ -222,7 +254,8 @@ public static class RemoveTenantMemberHandler
         var tenancyId = SystemTenancy.For(command.TenantId);
         var fingerprint = CommandIdempotency.Fingerprint(
             Operation,
-            command.UserId.ToString("D"));
+            command.UserId.ToString("D"),
+            command.ExpectedVersion?.ToString(CultureInfo.InvariantCulture) ?? "unconditional");
         await using var session = store.LightweightSession(tenancyId);
         var stream = await session.Events.FetchForWriting<TenantAggregate>(command.TenantId, cancellationToken);
         var tenant = stream.Aggregate
@@ -239,9 +272,16 @@ public static class RemoveTenantMemberHandler
                 fingerprint,
                 cancellationToken) is not null)
         {
+            stream.AlwaysEnforceConsistency = true;
+            await session.SaveChangesAsync(cancellationToken);
             return;
         }
 
+        await ConcurrencyPreconditions.EnsureExpectedVersion(
+            session,
+            command.TenantId,
+            command.ExpectedVersion,
+            cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.RemoveMember(command.UserId));
         CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
@@ -260,6 +300,12 @@ public static class RemoveTenantMemberHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
+                await TenantAuthorization.RequireCurrentPermission(
+                    store,
+                    command.TenantId,
+                    actorId,
+                    TenantPermissions.MembersManage,
+                    cancellationToken);
                 return;
             }
 
