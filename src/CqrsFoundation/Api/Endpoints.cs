@@ -101,13 +101,14 @@ public static class Endpoints
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
-        var tenantId = await CreateTenantHandler.Handle(
+        var result = await CreateTenantHandler.Handle(
             new CreateTenant(RequireRequestString(request.Name, "name")),
             CurrentUser.Id(httpContext.User),
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
-        return Results.Created("/api/tenants/current", new { tenantId });
+        SetEntityTag(httpContext, result.Version);
+        return Results.Created("/api/tenants/current", new { tenantId = result.ResourceId });
     }
 
     private static async Task<IResult> GetCurrentTenant(
@@ -150,7 +151,7 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.MembersManage);
-        await AddTenantMemberHandler.Handle(
+        var result = await AddTenantMemberHandler.Handle(
             new AddTenantMember(
                 tenant.TenantId,
                 request.UserId,
@@ -160,6 +161,7 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
+        SetEntityTag(httpContext, result.Version);
         return Results.NoContent();
     }
 
@@ -172,7 +174,7 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.MembersManage);
-        await ChangeTenantMemberRoleHandler.Handle(
+        var result = await ChangeTenantMemberRoleHandler.Handle(
             new ChangeTenantMemberRole(
                 tenant.TenantId,
                 userId,
@@ -182,6 +184,7 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
+        SetEntityTag(httpContext, result.Version);
         return Results.NoContent();
     }
 
@@ -193,7 +196,7 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.MembersManage);
-        await RemoveTenantMemberHandler.Handle(
+        var result = await RemoveTenantMemberHandler.Handle(
             new RemoveTenantMember(
                 tenant.TenantId,
                 userId,
@@ -202,6 +205,7 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
+        SetEntityTag(httpContext, result.Version);
         return Results.NoContent();
     }
 
@@ -227,7 +231,7 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.CustomersWrite);
-        var customerId = await CreateCustomerHandler.Handle(
+        var result = await CreateCustomerHandler.Handle(
             new CreateCustomer(
                 tenant.TenantId,
                 RequireRequestString(request.Name, "name")),
@@ -235,7 +239,10 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
-        return Results.Created($"/api/customers/{customerId}", new { customerId });
+        SetEntityTag(httpContext, result.Version);
+        return Results.Created(
+            $"/api/customers/{result.ResourceId}",
+            new { customerId = result.ResourceId });
     }
 
     private static async Task<IResult> GetCustomer(
@@ -265,7 +272,7 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.CustomersWrite);
-        await RenameCustomerHandler.Handle(
+        var result = await RenameCustomerHandler.Handle(
             new RenameCustomer(
                 tenant.TenantId,
                 customerId,
@@ -275,6 +282,7 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
+        SetEntityTag(httpContext, result.Version);
         return Results.NoContent();
     }
 
@@ -286,7 +294,7 @@ public static class Endpoints
     {
         var tenant = RequireTenant(httpContext);
         EnsurePermission(tenant, TenantPermissions.CustomersWrite);
-        await DeactivateCustomerHandler.Handle(
+        var result = await DeactivateCustomerHandler.Handle(
             new DeactivateCustomer(
                 tenant.TenantId,
                 customerId,
@@ -295,6 +303,7 @@ public static class Endpoints
             store,
             CommandMetadataFor(httpContext),
             cancellationToken);
+        SetEntityTag(httpContext, result.Version);
         return Results.NoContent();
     }
 
