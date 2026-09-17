@@ -1,3 +1,4 @@
+using System.Globalization;
 using CqrsFoundation.Domain.Common;
 using CqrsFoundation.Domain.Customers;
 using CqrsFoundation.Domain.Tenants;
@@ -7,8 +8,8 @@ using Marten;
 namespace CqrsFoundation.Application;
 
 public sealed record CreateCustomer(Guid TenantId, string Name);
-public sealed record RenameCustomer(Guid TenantId, Guid CustomerId, string Name);
-public sealed record DeactivateCustomer(Guid TenantId, Guid CustomerId);
+public sealed record RenameCustomer(Guid TenantId, Guid CustomerId, string Name, long? ExpectedVersion = null);
+public sealed record DeactivateCustomer(Guid TenantId, Guid CustomerId, long? ExpectedVersion = null);
 
 public static class CreateCustomerHandler
 {
@@ -82,7 +83,7 @@ public static class CreateCustomerHandler
 
 public static class RenameCustomerHandler
 {
-    private const string Operation = "customers.rename.v1";
+    private const string Operation = "customers.rename.v2";
 
     public static async Task Handle(
         RenameCustomer command,
@@ -101,7 +102,8 @@ public static class RenameCustomerHandler
         var fingerprint = CommandIdempotency.Fingerprint(
             Operation,
             command.CustomerId.ToString("D"),
-            name);
+            name,
+            VersionPart(command.ExpectedVersion));
         await using var session = store.LightweightSession(tenancyId);
         await TenantAuthorization.RequireCommandPermission(
             session,
@@ -121,10 +123,17 @@ public static class RenameCustomerHandler
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
-        var stream = await session.Events.FetchForWriting<CustomerAggregate>(command.CustomerId, cancellationToken);
+        var stream = command.ExpectedVersion is long expectedVersion
+            ? await session.Events.FetchForWriting<CustomerAggregate>(
+                command.CustomerId,
+                expectedVersion,
+                cancellationToken)
+            : await session.Events.FetchForWriting<CustomerAggregate>(
+                command.CustomerId,
+                cancellationToken);
         var customer = stream.Aggregate ?? throw new KeyNotFoundException("Customer not found.");
         var events = customer.Rename(name);
-        if (events.Count == 0 && metadata.IdempotencyKey is null)
+        if (events.Count == 0 && metadata.IdempotencyKey is null && command.ExpectedVersion is null)
         {
             return;
         }
@@ -159,11 +168,14 @@ public static class RenameCustomerHandler
             throw;
         }
     }
+
+    private static string VersionPart(long? version) =>
+        version?.ToString(CultureInfo.InvariantCulture) ?? "unconditional";
 }
 
 public static class DeactivateCustomerHandler
 {
-    private const string Operation = "customers.deactivate.v1";
+    private const string Operation = "customers.deactivate.v2";
 
     public static async Task Handle(
         DeactivateCustomer command,
@@ -175,7 +187,8 @@ public static class DeactivateCustomerHandler
         var tenancyId = SystemTenancy.For(command.TenantId);
         var fingerprint = CommandIdempotency.Fingerprint(
             Operation,
-            command.CustomerId.ToString("D"));
+            command.CustomerId.ToString("D"),
+            command.ExpectedVersion?.ToString(CultureInfo.InvariantCulture) ?? "unconditional");
         await using var session = store.LightweightSession(tenancyId);
         await TenantAuthorization.RequireCommandPermission(
             session,
@@ -195,10 +208,17 @@ public static class DeactivateCustomerHandler
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
-        var stream = await session.Events.FetchForWriting<CustomerAggregate>(command.CustomerId, cancellationToken);
+        var stream = command.ExpectedVersion is long expectedVersion
+            ? await session.Events.FetchForWriting<CustomerAggregate>(
+                command.CustomerId,
+                expectedVersion,
+                cancellationToken)
+            : await session.Events.FetchForWriting<CustomerAggregate>(
+                command.CustomerId,
+                cancellationToken);
         var customer = stream.Aggregate ?? throw new KeyNotFoundException("Customer not found.");
         var events = customer.Deactivate();
-        if (events.Count == 0 && metadata.IdempotencyKey is null)
+        if (events.Count == 0 && metadata.IdempotencyKey is null && command.ExpectedVersion is null)
         {
             return;
         }
