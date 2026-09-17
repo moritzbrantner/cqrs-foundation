@@ -123,15 +123,16 @@ public static class RenameCustomerHandler
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
-        var stream = command.ExpectedVersion is long expectedVersion
-            ? await session.Events.FetchForWriting<CustomerAggregate>(
-                command.CustomerId,
-                expectedVersion,
-                cancellationToken)
-            : await session.Events.FetchForWriting<CustomerAggregate>(
-                command.CustomerId,
-                cancellationToken);
+        var stream = await session.Events.FetchForWriting<CustomerAggregate>(
+            command.CustomerId,
+            cancellationToken);
         var customer = stream.Aggregate ?? throw new KeyNotFoundException("Customer not found.");
+        await ConcurrencyPreconditions.EnsureExpectedVersion(
+            session,
+            command.CustomerId,
+            command.ExpectedVersion,
+            cancellationToken);
+
         var events = customer.Rename(name);
         if (events.Count == 0 && metadata.IdempotencyKey is null && command.ExpectedVersion is null)
         {
@@ -208,15 +209,16 @@ public static class DeactivateCustomerHandler
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
-        var stream = command.ExpectedVersion is long expectedVersion
-            ? await session.Events.FetchForWriting<CustomerAggregate>(
-                command.CustomerId,
-                expectedVersion,
-                cancellationToken)
-            : await session.Events.FetchForWriting<CustomerAggregate>(
-                command.CustomerId,
-                cancellationToken);
+        var stream = await session.Events.FetchForWriting<CustomerAggregate>(
+            command.CustomerId,
+            cancellationToken);
         var customer = stream.Aggregate ?? throw new KeyNotFoundException("Customer not found.");
+        await ConcurrencyPreconditions.EnsureExpectedVersion(
+            session,
+            command.CustomerId,
+            command.ExpectedVersion,
+            cancellationToken);
+
         var events = customer.Deactivate();
         if (events.Count == 0 && metadata.IdempotencyKey is null && command.ExpectedVersion is null)
         {
