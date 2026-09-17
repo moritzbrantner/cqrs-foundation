@@ -18,6 +18,14 @@ Aggregates are immutable projections of their streams. Domain methods return eve
 
 Every write carries explicit command metadata. The API preserves an incoming `X-Correlation-Id` across related commands, otherwise starts correlation from the ASP.NET Core request trace identifier. The individual request trace identifier is recorded as causation. Actor, correlation, and causation are stored with the appended events, and correlation is echoed in the response header.
 
+### Client concurrency preconditions
+
+Single mutable-resource reads expose the current event-stream version as a strong numeric HTTP ETag such as `"3"`. Existing-resource writes may send that value back in `If-Match`. The header is optional so unconditional commands remain supported, but when present the application rejects a stale stream version with HTTP 412 before applying domain events.
+
+The explicit client precondition does not replace Marten's normal optimistic concurrency. `FetchForWriting<T>()` still pins the version observed by the command and `SaveChangesAsync()` still detects a race that happens after the precondition was checked. No-op commands with an expected version also force a stream consistency assertion before succeeding.
+
+The foundation keeps Marten 9's default Quick append mode. Stream versions are read from event-stream state rather than switching inline projections to Rich mode merely to persist a version member on each projected document.
+
 ### Authorization
 
 Permissions are the authorization primitive. Built-in tenant roles bundle named permissions such as `customers.read`, `customers.write`, `members.read`, `members.manage`, and `audit.read`; handlers ask for permissions rather than branching on role names.
@@ -30,7 +38,9 @@ The tenant owner remains a domain lifecycle concept: the owner cannot be removed
 
 Write requests may additionally provide `Idempotency-Key`. The key is bounded at the HTTP boundary and is scoped by Marten tenancy plus the current actor. A command stores a `CommandReceipt` in the same Marten transaction as its business events/documents. The receipt contains only a versioned command fingerprint and, for create commands, the created resource id.
 
-Authorization is checked before receipt lookup. A retry therefore still requires the actor's current permission; an old receipt is not a capability after access has been revoked.
+Authorization is checked before receipt lookup. A retry therefore still requires the actor's current permission; an old receipt is not a capability after access has been revoked. Matching receipt replays also assert that the authorization stream has not changed during the replay check.
+
+When a command uses a client expected version, that version is part of the idempotency fingerprint. A retry of an already committed command replays its receipt before evaluating the now-stale resource version, which is required for safe retry after a lost response.
 
 A retry with the same key and fingerprint returns the previously committed outcome without executing the domain decision again. Reusing the key with different command input fails closed. Concurrent duplicates converge through the same receipt identity and, for resource creation, the same deterministic UUID; if one request loses a commit race it re-reads the committed receipt before surfacing the persistence failure.
 
@@ -40,7 +50,7 @@ Without `Idempotency-Key`, command behavior and randomly generated resource iden
 
 ## Read path
 
-Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates. Tenant query handlers authorize the actor before exposing the requested projection/history data.
+Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates. Tenant query handlers authorize the actor before exposing the requested projection/history data. Single mutable-resource queries pair the projection with the canonical event-stream version so HTTP can emit an ETag without changing the JSON body shape.
 
 ## Audit path
 
