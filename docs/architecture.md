@@ -54,6 +54,10 @@ Without `Idempotency-Key`, command behavior and randomly generated resource iden
 
 Queries use `IQuerySession` and persisted inline projections such as `CustomerView`, `TenantView`, and `UserProfile`. API responses do not depend on loading write aggregates. Tenant query handlers authorize the actor before exposing the requested projection/history data. Single mutable-resource queries pair the projection with the canonical event-stream version so HTTP can emit an ETag without changing the JSON body shape.
 
+Collection queries are explicit and bounded. A collection that needs filtering or paging uses an HTTP `QUERY` operation with a request body; single resources and small fixed collections remain `GET`. The customer query normalizes its filters, enforces a default limit of 25 and a hard maximum of 100, orders by `Name` and then `Id` for deterministic tie-breaking, and fetches one extra row only to determine whether `nextOffset` should be returned. It deliberately does not calculate a total count by default.
+
+Offset paging is transparent but not snapshot isolation. Concurrent inserts, renames, or deletes may shift later pages. If a concrete workload requires stable continuation while the result set changes, the next upgrade is a keyset/continuation token rather than hidden snapshot infrastructure.
+
 ## Audit path
 
 The event stream is the canonical history. Event metadata stores the tenant automatically and opts into correlation, causation, username, and headers. The foundation adds an `actor_id` header on writes. History responses expose actor, correlation, and causation independently of the current read model.
