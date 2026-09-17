@@ -119,6 +119,18 @@ public static class TenantQueries
 
 public static class CustomerQueries
 {
+    public static Task<CustomerQueryPage> List(
+        Guid tenantId,
+        Guid actorId,
+        IDocumentStore store,
+        CancellationToken cancellationToken) =>
+        List(
+            tenantId,
+            actorId,
+            new CustomerListQuery(),
+            store,
+            cancellationToken);
+
     public static async Task<CustomerQueryPage> List(
         Guid tenantId,
         Guid actorId,
