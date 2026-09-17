@@ -13,7 +13,7 @@ public sealed record CustomerListQuery(
     string? NamePrefix = null,
     bool? IsActive = null,
     int Offset = 0,
-    int Limit = DefaultLimit)
+    int Limit = 25)
 {
     public const int DefaultLimit = 25;
     public const int MaxLimit = 100;
