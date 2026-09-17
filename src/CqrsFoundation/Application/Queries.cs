@@ -40,7 +40,7 @@ public static class TenantQueries
         CancellationToken cancellationToken)
     {
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        var tenant = await TenantAuthorization.RequireQueryPermission(
+        await TenantAuthorization.RequireQueryPermission(
             query,
             tenantId,
             actorId,
@@ -48,6 +48,12 @@ public static class TenantQueries
             cancellationToken);
         var state = await query.Events.FetchStreamStateAsync(tenantId, cancellationToken)
             ?? throw new KeyNotFoundException("Tenant not found.");
+        var tenant = await TenantAuthorization.RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            TenantPermissions.TenantRead,
+            cancellationToken);
         return new VersionedResource<TenantView>(tenant, state.Version);
     }
 
@@ -58,7 +64,7 @@ public static class TenantQueries
         CancellationToken cancellationToken)
     {
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        var tenant = await TenantAuthorization.RequireQueryPermission(
+        await TenantAuthorization.RequireQueryPermission(
             query,
             tenantId,
             actorId,
@@ -66,6 +72,12 @@ public static class TenantQueries
             cancellationToken);
         var state = await query.Events.FetchStreamStateAsync(tenantId, cancellationToken)
             ?? throw new KeyNotFoundException("Tenant not found.");
+        var tenant = await TenantAuthorization.RequireQueryPermission(
+            query,
+            tenantId,
+            actorId,
+            TenantPermissions.MembersRead,
+            cancellationToken);
         return new VersionedResource<IReadOnlyDictionary<Guid, string>>(tenant.Members, state.Version);
     }
 }
@@ -104,9 +116,9 @@ public static class CustomerQueries
             actorId,
             TenantPermissions.CustomersRead,
             cancellationToken);
-        var customer = await query.LoadAsync<CustomerView>(customerId, cancellationToken)
-            ?? throw new KeyNotFoundException("Customer not found.");
         var state = await query.Events.FetchStreamStateAsync(customerId, cancellationToken)
+            ?? throw new KeyNotFoundException("Customer not found.");
+        var customer = await query.LoadAsync<CustomerView>(customerId, cancellationToken)
             ?? throw new KeyNotFoundException("Customer not found.");
         return new VersionedResource<CustomerView>(customer, state.Version);
     }
