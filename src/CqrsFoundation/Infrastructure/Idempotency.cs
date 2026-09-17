@@ -9,7 +9,8 @@ public sealed record CommandReceipt(
     Guid Id,
     Guid ActorId,
     string Fingerprint,
-    Guid? ResourceId);
+    Guid? ResourceId,
+    long? ResultVersion = null);
 
 public static class CommandIdempotency
 {
@@ -53,7 +54,8 @@ public static class CommandIdempotency
         Guid actorId,
         CommandMetadata metadata,
         string fingerprint,
-        Guid? resourceId = null)
+        Guid? resourceId = null,
+        long? resultVersion = null)
     {
         if (metadata.IdempotencyKey is null)
         {
@@ -64,7 +66,8 @@ public static class CommandIdempotency
             ReceiptId(actorId, metadata.IdempotencyKey),
             actorId,
             fingerprint,
-            resourceId));
+            resourceId,
+            resultVersion));
     }
 
     public static async Task<CommandReceipt?> RecoverCommitted(
@@ -90,6 +93,10 @@ public static class CommandIdempotency
     public static Guid RequireResourceId(CommandReceipt receipt) =>
         receipt.ResourceId
         ?? throw new InvalidOperationException("The idempotency receipt does not contain a resource id.");
+
+    public static long RequireResultVersion(CommandReceipt receipt) =>
+        receipt.ResultVersion
+        ?? throw new InvalidOperationException("The idempotency receipt does not contain a result version.");
 
     private static CommandReceipt? RequireMatching(CommandReceipt? receipt, string fingerprint)
     {
