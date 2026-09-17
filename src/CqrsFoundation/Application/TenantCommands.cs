@@ -134,7 +134,8 @@ public static class AddTenantMemberHandler
         await EnsureUserExists(command.UserId, store, cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.AddMember(command.UserId, role));
-        var resultVersion = stream.CurrentVersion;
+        var resultVersion = stream.CurrentVersion
+            ?? throw new InvalidOperationException("The tenant stream version is unavailable.");
         CommandIdempotency.Stage(
             session,
             actorId,
@@ -232,7 +233,8 @@ public static class ChangeTenantMemberRoleHandler
             cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.ChangeRole(command.UserId, role));
-        var resultVersion = stream.CurrentVersion;
+        var resultVersion = stream.CurrentVersion
+            ?? throw new InvalidOperationException("The tenant stream version is unavailable.");
         CommandIdempotency.Stage(
             session,
             actorId,
@@ -316,7 +318,8 @@ public static class RemoveTenantMemberHandler
             cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.RemoveMember(command.UserId));
-        var resultVersion = stream.CurrentVersion;
+        var resultVersion = stream.CurrentVersion
+            ?? throw new InvalidOperationException("The tenant stream version is unavailable.");
         CommandIdempotency.Stage(
             session,
             actorId,
