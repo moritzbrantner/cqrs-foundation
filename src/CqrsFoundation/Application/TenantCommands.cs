@@ -138,10 +138,11 @@ public static class AddTenantMemberHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
-                await EnsureCurrentManagementPermission(
+                await TenantAuthorization.RequireCurrentPermission(
                     store,
                     command.TenantId,
                     actorId,
+                    TenantPermissions.MembersManage,
                     cancellationToken);
                 return;
             }
@@ -157,21 +158,6 @@ public static class AddTenantMemberHandler
         {
             throw new KeyNotFoundException("User not found.");
         }
-    }
-
-    internal static async Task EnsureCurrentManagementPermission(
-        IDocumentStore store,
-        Guid tenantId,
-        Guid actorId,
-        CancellationToken cancellationToken)
-    {
-        await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        await TenantAuthorization.RequireQueryPermission(
-            query,
-            tenantId,
-            actorId,
-            TenantPermissions.MembersManage,
-            cancellationToken);
     }
 
     private static string VersionPart(long? version) =>
@@ -240,10 +226,11 @@ public static class ChangeTenantMemberRoleHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
-                await AddTenantMemberHandler.EnsureCurrentManagementPermission(
+                await TenantAuthorization.RequireCurrentPermission(
                     store,
                     command.TenantId,
                     actorId,
+                    TenantPermissions.MembersManage,
                     cancellationToken);
                 return;
             }
@@ -313,10 +300,11 @@ public static class RemoveTenantMemberHandler
                     fingerprint,
                     cancellationToken) is not null)
             {
-                await AddTenantMemberHandler.EnsureCurrentManagementPermission(
+                await TenantAuthorization.RequireCurrentPermission(
                     store,
                     command.TenantId,
                     actorId,
+                    TenantPermissions.MembersManage,
                     cancellationToken);
                 return;
             }
