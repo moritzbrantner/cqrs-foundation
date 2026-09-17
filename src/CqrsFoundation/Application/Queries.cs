@@ -6,6 +6,8 @@ using Marten;
 
 namespace CqrsFoundation.Application;
 
+public sealed record VersionedResource<T>(T Value, long Version);
+
 public sealed record EventHistoryItem(
     Guid EventId,
     long Version,
@@ -31,22 +33,25 @@ public static class UserQueries
 
 public static class TenantQueries
 {
-    public static async Task<TenantView> GetCurrent(
+    public static async Task<VersionedResource<TenantView>> GetCurrent(
         Guid tenantId,
         Guid actorId,
         IDocumentStore store,
         CancellationToken cancellationToken)
     {
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
-        return await TenantAuthorization.RequireQueryPermission(
+        var tenant = await TenantAuthorization.RequireQueryPermission(
             query,
             tenantId,
             actorId,
             TenantPermissions.TenantRead,
             cancellationToken);
+        var state = await query.Events.FetchStreamStateAsync(tenantId, cancellationToken)
+            ?? throw new KeyNotFoundException("Tenant not found.");
+        return new VersionedResource<TenantView>(tenant, state.Version);
     }
 
-    public static async Task<IReadOnlyDictionary<Guid, string>> ListMembers(
+    public static async Task<VersionedResource<IReadOnlyDictionary<Guid, string>>> ListMembers(
         Guid tenantId,
         Guid actorId,
         IDocumentStore store,
@@ -59,7 +64,9 @@ public static class TenantQueries
             actorId,
             TenantPermissions.MembersRead,
             cancellationToken);
-        return tenant.Members;
+        var state = await query.Events.FetchStreamStateAsync(tenantId, cancellationToken)
+            ?? throw new KeyNotFoundException("Tenant not found.");
+        return new VersionedResource<IReadOnlyDictionary<Guid, string>>(tenant.Members, state.Version);
     }
 }
 
@@ -83,7 +90,7 @@ public static class CustomerQueries
             .ToListAsync(cancellationToken);
     }
 
-    public static async Task<CustomerView> Get(
+    public static async Task<VersionedResource<CustomerView>> Get(
         Guid tenantId,
         Guid actorId,
         Guid customerId,
@@ -97,8 +104,11 @@ public static class CustomerQueries
             actorId,
             TenantPermissions.CustomersRead,
             cancellationToken);
-        return await query.LoadAsync<CustomerView>(customerId, cancellationToken)
+        var customer = await query.LoadAsync<CustomerView>(customerId, cancellationToken)
             ?? throw new KeyNotFoundException("Customer not found.");
+        var state = await query.Events.FetchStreamStateAsync(customerId, cancellationToken)
+            ?? throw new KeyNotFoundException("Customer not found.");
+        return new VersionedResource<CustomerView>(customer, state.Version);
     }
 
     public static async Task<IReadOnlyList<EventHistoryItem>> History(
