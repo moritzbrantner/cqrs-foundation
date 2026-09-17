@@ -56,6 +56,23 @@ public sealed class ApiBoundaryTests
     }
 
     [TestMethod]
+    public async Task Invalid_query_maps_to_bad_request()
+    {
+        var context = new DefaultHttpContext();
+        context.Response.Body = new MemoryStream();
+
+        await new ApiExceptionHandler().TryHandleAsync(
+            context,
+            new InvalidQueryException("Bad query."),
+            CancellationToken.None);
+
+        Assert.AreEqual(StatusCodes.Status400BadRequest, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(context.Response.Body);
+        Assert.AreEqual("Invalid query", problem?.Title);
+    }
+
+    [TestMethod]
     public async Task Stale_resource_version_maps_to_precondition_failed()
     {
         var context = new DefaultHttpContext();
