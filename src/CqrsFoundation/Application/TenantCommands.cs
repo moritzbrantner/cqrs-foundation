@@ -15,8 +15,9 @@ public sealed record RemoveTenantMember(Guid TenantId, Guid UserId, long? Expect
 public static class CreateTenantHandler
 {
     private const string Operation = "tenants.create.v1";
+    private const long CreatedVersion = 1;
 
-    public static async Task<Guid> Handle(
+    public static async Task<CreatedResource> Handle(
         CreateTenant command,
         Guid actorId,
         IDocumentStore store,
@@ -41,14 +42,22 @@ public static class CreateTenantHandler
             cancellationToken);
         if (existing is not null)
         {
-            return CommandIdempotency.RequireResourceId(existing);
+            return new CreatedResource(
+                CommandIdempotency.RequireResourceId(existing),
+                CommandIdempotency.RequireResultVersion(existing));
         }
 
         AuditMetadata.Apply(session, actorId, metadata);
         session.Events.StartStream<TenantAggregate>(
             tenantId,
             new TenantCreated(tenantId, name, actorId));
-        CommandIdempotency.Stage(session, actorId, metadata, fingerprint, tenantId);
+        CommandIdempotency.Stage(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            tenantId,
+            CreatedVersion);
 
         try
         {
@@ -65,13 +74,15 @@ public static class CreateTenantHandler
                 cancellationToken);
             if (recovered is not null)
             {
-                return CommandIdempotency.RequireResourceId(recovered);
+                return new CreatedResource(
+                    CommandIdempotency.RequireResourceId(recovered),
+                    CommandIdempotency.RequireResultVersion(recovered));
             }
 
             throw;
         }
 
-        return tenantId;
+        return new CreatedResource(tenantId, CreatedVersion);
     }
 }
 
@@ -79,7 +90,7 @@ public static class AddTenantMemberHandler
 {
     private const string Operation = "tenants.members.add.v2";
 
-    public static async Task Handle(
+    public static async Task<MutationResult> Handle(
         AddTenantMember command,
         Guid actorId,
         IDocumentStore store,
@@ -102,16 +113,17 @@ public static class AddTenantMemberHandler
             actorId,
             TenantPermissions.MembersManage);
 
-        if (await CommandIdempotency.LoadExisting(
-                session,
-                actorId,
-                metadata,
-                fingerprint,
-                cancellationToken) is not null)
+        var existing = await CommandIdempotency.LoadExisting(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            cancellationToken);
+        if (existing is not null)
         {
             stream.AlwaysEnforceConsistency = true;
             await session.SaveChangesAsync(cancellationToken);
-            return;
+            return new MutationResult(CommandIdempotency.RequireResultVersion(existing));
         }
 
         await ConcurrencyPreconditions.EnsureExpectedVersion(
@@ -122,7 +134,13 @@ public static class AddTenantMemberHandler
         await EnsureUserExists(command.UserId, store, cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.AddMember(command.UserId, role));
-        CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
+        var resultVersion = stream.CurrentVersion;
+        CommandIdempotency.Stage(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            resultVersion: resultVersion);
 
         try
         {
@@ -130,13 +148,14 @@ public static class AddTenantMemberHandler
         }
         catch (Exception)
         {
-            if (await CommandIdempotency.RecoverCommitted(
-                    store,
-                    tenancyId,
-                    actorId,
-                    metadata,
-                    fingerprint,
-                    cancellationToken) is not null)
+            var recovered = await CommandIdempotency.RecoverCommitted(
+                store,
+                tenancyId,
+                actorId,
+                metadata,
+                fingerprint,
+                cancellationToken);
+            if (recovered is not null)
             {
                 await TenantAuthorization.RequireCurrentPermission(
                     store,
@@ -144,11 +163,13 @@ public static class AddTenantMemberHandler
                     actorId,
                     TenantPermissions.MembersManage,
                     cancellationToken);
-                return;
+                return new MutationResult(CommandIdempotency.RequireResultVersion(recovered));
             }
 
             throw;
         }
+
+        return new MutationResult(resultVersion);
     }
 
     internal static async Task EnsureUserExists(Guid userId, IDocumentStore store, CancellationToken cancellationToken)
@@ -168,7 +189,7 @@ public static class ChangeTenantMemberRoleHandler
 {
     private const string Operation = "tenants.members.change-role.v2";
 
-    public static async Task Handle(
+    public static async Task<MutationResult> Handle(
         ChangeTenantMemberRole command,
         Guid actorId,
         IDocumentStore store,
@@ -191,16 +212,17 @@ public static class ChangeTenantMemberRoleHandler
             actorId,
             TenantPermissions.MembersManage);
 
-        if (await CommandIdempotency.LoadExisting(
-                session,
-                actorId,
-                metadata,
-                fingerprint,
-                cancellationToken) is not null)
+        var existing = await CommandIdempotency.LoadExisting(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            cancellationToken);
+        if (existing is not null)
         {
             stream.AlwaysEnforceConsistency = true;
             await session.SaveChangesAsync(cancellationToken);
-            return;
+            return new MutationResult(CommandIdempotency.RequireResultVersion(existing));
         }
 
         await ConcurrencyPreconditions.EnsureExpectedVersion(
@@ -210,7 +232,13 @@ public static class ChangeTenantMemberRoleHandler
             cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.ChangeRole(command.UserId, role));
-        CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
+        var resultVersion = stream.CurrentVersion;
+        CommandIdempotency.Stage(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            resultVersion: resultVersion);
 
         try
         {
@@ -218,13 +246,14 @@ public static class ChangeTenantMemberRoleHandler
         }
         catch (Exception)
         {
-            if (await CommandIdempotency.RecoverCommitted(
-                    store,
-                    tenancyId,
-                    actorId,
-                    metadata,
-                    fingerprint,
-                    cancellationToken) is not null)
+            var recovered = await CommandIdempotency.RecoverCommitted(
+                store,
+                tenancyId,
+                actorId,
+                metadata,
+                fingerprint,
+                cancellationToken);
+            if (recovered is not null)
             {
                 await TenantAuthorization.RequireCurrentPermission(
                     store,
@@ -232,11 +261,13 @@ public static class ChangeTenantMemberRoleHandler
                     actorId,
                     TenantPermissions.MembersManage,
                     cancellationToken);
-                return;
+                return new MutationResult(CommandIdempotency.RequireResultVersion(recovered));
             }
 
             throw;
         }
+
+        return new MutationResult(resultVersion);
     }
 }
 
@@ -244,7 +275,7 @@ public static class RemoveTenantMemberHandler
 {
     private const string Operation = "tenants.members.remove.v2";
 
-    public static async Task Handle(
+    public static async Task<MutationResult> Handle(
         RemoveTenantMember command,
         Guid actorId,
         IDocumentStore store,
@@ -265,16 +296,17 @@ public static class RemoveTenantMemberHandler
             actorId,
             TenantPermissions.MembersManage);
 
-        if (await CommandIdempotency.LoadExisting(
-                session,
-                actorId,
-                metadata,
-                fingerprint,
-                cancellationToken) is not null)
+        var existing = await CommandIdempotency.LoadExisting(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            cancellationToken);
+        if (existing is not null)
         {
             stream.AlwaysEnforceConsistency = true;
             await session.SaveChangesAsync(cancellationToken);
-            return;
+            return new MutationResult(CommandIdempotency.RequireResultVersion(existing));
         }
 
         await ConcurrencyPreconditions.EnsureExpectedVersion(
@@ -284,7 +316,13 @@ public static class RemoveTenantMemberHandler
             cancellationToken);
         AuditMetadata.Apply(session, actorId, metadata);
         stream.AppendOne(tenant.RemoveMember(command.UserId));
-        CommandIdempotency.Stage(session, actorId, metadata, fingerprint);
+        var resultVersion = stream.CurrentVersion;
+        CommandIdempotency.Stage(
+            session,
+            actorId,
+            metadata,
+            fingerprint,
+            resultVersion: resultVersion);
 
         try
         {
@@ -292,13 +330,14 @@ public static class RemoveTenantMemberHandler
         }
         catch (Exception)
         {
-            if (await CommandIdempotency.RecoverCommitted(
-                    store,
-                    tenancyId,
-                    actorId,
-                    metadata,
-                    fingerprint,
-                    cancellationToken) is not null)
+            var recovered = await CommandIdempotency.RecoverCommitted(
+                store,
+                tenancyId,
+                actorId,
+                metadata,
+                fingerprint,
+                cancellationToken);
+            if (recovered is not null)
             {
                 await TenantAuthorization.RequireCurrentPermission(
                     store,
@@ -306,10 +345,12 @@ public static class RemoveTenantMemberHandler
                     actorId,
                     TenantPermissions.MembersManage,
                     cancellationToken);
-                return;
+                return new MutationResult(CommandIdempotency.RequireResultVersion(recovered));
             }
 
             throw;
         }
+
+        return new MutationResult(resultVersion);
     }
 }
