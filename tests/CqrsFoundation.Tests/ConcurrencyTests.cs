@@ -130,8 +130,8 @@ public sealed class ConcurrencyTests
                 store,
                 new CommandMetadata("stale-deactivate", "stale-deactivate-request"),
                 CancellationToken.None));
-        Assert.AreEqual(created.Version, exception.ExpectedVersion);
-        Assert.AreEqual(renamed.Version, exception.ActualVersion);
+        Assert.AreEqual(1L, exception.ExpectedVersion);
+        Assert.AreEqual(2L, exception.ActualVersion);
 
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
         var events = await query.Events.FetchStreamAsync(created.ResourceId);
