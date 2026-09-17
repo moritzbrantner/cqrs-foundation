@@ -1,3 +1,4 @@
+using CqrsFoundation.Domain.Common;
 using CqrsFoundation.Domain.Customers;
 using CqrsFoundation.Domain.Tenants;
 using CqrsFoundation.Domain.Users;
@@ -7,6 +8,40 @@ using Marten;
 namespace CqrsFoundation.Application;
 
 public sealed record VersionedResource<T>(T Value, long Version);
+
+public sealed record CustomerListQuery(
+    string? NamePrefix = null,
+    bool? IsActive = null,
+    int Offset = 0,
+    int Limit = 25)
+{
+    public const int DefaultLimit = 25;
+    public const int MaxLimit = 100;
+
+    public CustomerListQuery ValidateAndNormalize()
+    {
+        if (Offset < 0)
+        {
+            throw new InvalidQueryException("Customer query offset cannot be negative.");
+        }
+
+        if (Limit is < 1 or > MaxLimit)
+        {
+            throw new InvalidQueryException(
+                $"Customer query limit must be between 1 and {MaxLimit}.");
+        }
+
+        var prefix = NamePrefix?.Trim();
+        return this with
+        {
+            NamePrefix = string.IsNullOrEmpty(prefix) ? null : prefix
+        };
+    }
+}
+
+public sealed record CustomerQueryPage(
+    IReadOnlyList<CustomerView> Items,
+    int? NextOffset);
 
 public sealed record EventHistoryItem(
     Guid EventId,
@@ -84,12 +119,27 @@ public static class TenantQueries
 
 public static class CustomerQueries
 {
-    public static async Task<IReadOnlyList<CustomerView>> List(
+    public static Task<CustomerQueryPage> List(
         Guid tenantId,
         Guid actorId,
         IDocumentStore store,
+        CancellationToken cancellationToken) =>
+        List(
+            tenantId,
+            actorId,
+            new CustomerListQuery(),
+            store,
+            cancellationToken);
+
+    public static async Task<CustomerQueryPage> List(
+        Guid tenantId,
+        Guid actorId,
+        CustomerListQuery request,
+        IDocumentStore store,
         CancellationToken cancellationToken)
     {
+        var normalized = request.ValidateAndNormalize();
+
         await using var query = store.QuerySession(SystemTenancy.For(tenantId));
         await TenantAuthorization.RequireQueryPermission(
             query,
@@ -97,9 +147,30 @@ public static class CustomerQueries
             actorId,
             TenantPermissions.CustomersRead,
             cancellationToken);
-        return await query.Query<CustomerView>()
+
+        IQueryable<CustomerView> customers = query.Query<CustomerView>();
+        if (normalized.NamePrefix is not null)
+        {
+            customers = customers.Where(x => x.Name.StartsWith(normalized.NamePrefix));
+        }
+
+        if (normalized.IsActive is not null)
+        {
+            customers = customers.Where(x => x.IsActive == normalized.IsActive.Value);
+        }
+
+        var rows = await customers
             .OrderBy(x => x.Name)
+            .ThenBy(x => x.Id)
+            .Skip(normalized.Offset)
+            .Take(normalized.Limit + 1)
             .ToListAsync(cancellationToken);
+
+        var hasMore = rows.Count > normalized.Limit;
+        var items = rows.Take(normalized.Limit).ToArray();
+        return new CustomerQueryPage(
+            items,
+            hasMore ? normalized.Offset + normalized.Limit : null);
     }
 
     public static async Task<VersionedResource<CustomerView>> Get(

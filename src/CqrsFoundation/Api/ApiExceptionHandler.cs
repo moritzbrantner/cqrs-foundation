@@ -15,6 +15,7 @@ public sealed class ApiExceptionHandler : IExceptionHandler
         var (status, title) = exception switch
         {
             BadHttpRequestException => (StatusCodes.Status400BadRequest, "Bad request"),
+            InvalidQueryException => (StatusCodes.Status400BadRequest, "Invalid query"),
             StaleResourceVersionException => (StatusCodes.Status412PreconditionFailed, "Resource version precondition failed"),
             BusinessRuleException => (StatusCodes.Status422UnprocessableEntity, "Business rule rejected the command"),
             KeyNotFoundException => (StatusCodes.Status404NotFound, "Resource not found"),

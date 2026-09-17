@@ -6,6 +6,7 @@ using CqrsFoundation.Domain.Tenants;
 using CqrsFoundation.Infrastructure;
 using Marten;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
 
 namespace CqrsFoundation.Api;
 
@@ -14,6 +15,11 @@ public sealed record LoginUserRequest(string? Email, string? Password);
 public sealed record CreateTenantRequest(string? Name);
 public sealed record AddTenantMemberRequest(Guid UserId, string? Role);
 public sealed record ChangeTenantMemberRoleRequest(string? Role);
+public sealed record QueryCustomersRequest(
+    string? NamePrefix,
+    bool? IsActive,
+    int? Offset,
+    int? Limit);
 public sealed record CreateCustomerRequest(string? Name);
 public sealed record RenameCustomerRequest(string? Name);
 
@@ -22,6 +28,7 @@ public static class Endpoints
     internal const string CorrelationIdHeader = "X-Correlation-Id";
     internal const string IdempotencyKeyHeader = "Idempotency-Key";
     internal const string IfMatchHeader = "If-Match";
+    internal const string QueryMethod = "QUERY";
     internal const int MaxIdempotencyKeyLength = 128;
 
     public static void MapFoundationEndpoints(this WebApplication app)
@@ -40,7 +47,7 @@ public static class Endpoints
         authenticated.MapPut("/tenants/current/members/{userId:guid}/role", ChangeTenantMemberRole);
         authenticated.MapDelete("/tenants/current/members/{userId:guid}", RemoveTenantMember);
 
-        authenticated.MapGet("/customers", ListCustomers);
+        authenticated.MapMethods("/customers", [QueryMethod], QueryCustomers);
         authenticated.MapPost("/customers", CreateCustomer);
         authenticated.MapGet("/customers/{customerId:guid}", GetCustomer);
         authenticated.MapPut("/customers/{customerId:guid}/name", RenameCustomer);
@@ -209,7 +216,8 @@ public static class Endpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> ListCustomers(
+    private static async Task<IResult> QueryCustomers(
+        [FromBody] QueryCustomersRequest request,
         IDocumentStore store,
         HttpContext httpContext,
         CancellationToken cancellationToken)
@@ -219,6 +227,11 @@ public static class Endpoints
         return Results.Ok(await CustomerQueries.List(
             tenant.TenantId,
             CurrentUser.Id(httpContext.User),
+            new CustomerListQuery(
+                request.NamePrefix,
+                request.IsActive,
+                request.Offset ?? 0,
+                request.Limit ?? CustomerListQuery.DefaultLimit),
             store,
             cancellationToken));
     }
