@@ -33,7 +33,7 @@ The response is bounded and includes an opaque continuation cursor only when ano
 }
 ```
 
-Send `nextCursor` back as `cursor` with the same filters to continue. The cursor is versioned, tenant-bound, and filter-bound; malformed cursors or cursors reused with a different tenant/filter shape fail as invalid queries rather than silently seeking into a different result set.
+Send `nextCursor` back as `cursor` with the same filters to continue. The cursor is versioned, tenant-bound, and filter-bound; malformed cursors or cursors reused with a different tenant/filter shape fail as invalid queries rather than silently seeking into a different result set. The binding detects accidental reuse; it is not a security boundary and the cursor is not signed. Tenant isolation, read permission, and filters are always enforced from the current request, so a hand-edited cursor can only choose a seek position inside results the caller is already allowed to read.
 
 `limit` defaults to 25 and cannot exceed 100. A blank `namePrefix` is normalized to no name filter. Results are ordered by `Name` and then `Id`, with the unique id providing deterministic tie-breaking. Continuation uses a keyset predicate on that same tuple instead of `Skip`, so inserting or deleting rows before the current cursor does not shift later pages. No total count is calculated by default because that would add a separate database operation without a demonstrated UI requirement.
 
