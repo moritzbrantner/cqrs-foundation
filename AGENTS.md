@@ -31,9 +31,11 @@ This repository is deliberately small. Preserve the architectural boundaries ins
 - Single mutable resource queries return the event-stream version together with the projection so HTTP can emit a strong ETag without changing the response body shape.
 - Lists with filtering or paging use explicit query contracts and the HTTP `QUERY` method; reserve `GET` for single resources and small fixed collections.
 - Never expose an unbounded projection list. Every pageable query has a default limit and a hard maximum limit.
-- Use deterministic ordering with a unique tie-breaker before applying `Skip`/`Take` or a continuation cursor.
+- Use deterministic ordering with a unique tie-breaker before applying a continuation cursor.
+- Prefer keyset continuation over offsets once a deterministic unique ordering exists; deep pages must not become more expensive merely because earlier rows exist.
+- Bind opaque continuation cursors to the tenant and normalized filter shape, and fail closed if a cursor is malformed or reused with a different query.
 - Do not add total counts by default; they require additional work and should exist only when a concrete UI needs them.
-- Offset paging is not snapshot isolation. Document that concurrent inserts/renames can shift later pages instead of implying snapshot-stable continuation.
+- Keyset paging is not snapshot isolation when an ordering field is mutable. Document sort-key mutation caveats instead of implying snapshot-stable continuation.
 - Query handlers never append events or call command handlers.
 - Do not load write aggregates merely to shape API responses.
 

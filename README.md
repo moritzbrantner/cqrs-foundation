@@ -10,7 +10,7 @@ A small, opinionated .NET 10 foundation for business software using strict CQRS,
 - named tenant permissions with roles as permission bundles
 - handler-authoritative authorization for both commands and tenant queries
 - inline read projections separated from write aggregates
-- bounded `QUERY` collection endpoints with explicit filter/page contracts
+- bounded `QUERY` collection endpoints with explicit filter/page contracts and keyset continuation
 - Marten optimistic stream concurrency through `FetchForWriting<T>()`
 - strong ETags plus optional `If-Match` stream-version preconditions for stale-edit protection
 - updated ETags on successful mutable-resource writes, including idempotent replay
@@ -96,10 +96,10 @@ curl -X QUERY http://localhost:5000/api/customers \
   -H 'authorization: Bearer <token>' \
   -H 'X-Tenant-Id: <tenant-guid>' \
   -H 'content-type: application/json' \
-  -d '{"namePrefix":"Ac","isActive":true,"offset":0,"limit":25}'
+  -d '{"namePrefix":"Ac","isActive":true,"cursor":null,"limit":25}'
 ```
 
-The customer page defaults to 25 rows, has a hard maximum of 100, is ordered by name and id, and returns `nextOffset` only when another page exists. It intentionally does not calculate a total count by default.
+The customer page defaults to 25 rows, has a hard maximum of 100, is ordered by name and id, and returns an opaque `nextCursor` only when another page exists. Send that cursor back with the same filters to continue. Continuation uses the last `Name + Id` tuple instead of an offset, so rows inserted or deleted before the cursor do not shift later pages. The cursor is tenant/filter-bound and malformed or mismatched cursors fail closed. Because customer names are mutable, this is still not snapshot isolation if a row is renamed across the cursor boundary.
 
 Single mutable-resource reads such as `GET /api/customers/{id}` and tenant/member reads return a strong ETag containing the event-stream version:
 
