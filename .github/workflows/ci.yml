@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_DB: cqrs_foundation_test
           POSTGRES_USER: cqrs
@@ -27,7 +27,7 @@ jobs:
       TEST_POSTGRES: Host=localhost;Port=5432;Database=cqrs_foundation_test;Username=cqrs;Password=cqrs
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
       - run: dotnet restore cqrs-foundation.slnx
